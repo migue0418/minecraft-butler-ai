@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.lifespan import lifespan
 from app.core.settings import get_settings
 from app.features.auth.router import router as auth_router
+from app.features.butler.router import router as butler_router
 from app.features.health.router import router as health_router
 from app.features.roles.router import router as roles_router
 from app.features.users.router import router as users_router
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(butler_router)
     app.include_router(users_router)
     app.include_router(roles_router)
 
