@@ -583,3 +583,32 @@ def test_ask_response_is_list(client: TestClient) -> None:
         headers=auth_headers(tokens["access_token"]),
     )
     assert isinstance(response.json(), list)
+
+
+def test_ask_with_coordinates_returns_move_to_position(client: TestClient) -> None:
+    tokens = login(client)
+    response = client.post(
+        "/api/butler/ask",
+        json={"message": "ve a 100 64 -50"},
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code == 200
+    actions = response.json()
+    assert len(actions) == 1
+    assert actions[0]["type"] == "move_to_position"
+    assert actions[0]["x"] == 100
+    assert actions[0]["y"] == 64
+    assert actions[0]["z"] == -50
+
+
+def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
+    tokens = login(client)
+    response = client.post(
+        "/api/butler/ask",
+        json={"message": "hola Alfred"},
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code == 200
+    actions = response.json()
+    assert len(actions) == 1
+    assert actions[0]["type"] == "speak"
