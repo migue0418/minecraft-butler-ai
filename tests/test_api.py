@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import os
 import re
 import uuid
@@ -7,13 +7,14 @@ from contextlib import contextmanager
 
 import asyncpg
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.engine import URL, make_url
+
 from app.core.database import close_database
 from app.core.datetime import utcnow
 from app.core.settings import get_settings
 from app.features.auth.security import hash_password
 from app.main import create_app
-from fastapi.testclient import TestClient
-from sqlalchemy.engine import URL, make_url
 
 DEFAULT_TEST_DATABASE_ADMIN_URL = (
     "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/postgres"
@@ -554,3 +555,31 @@ def test_admin_can_reset_password_and_last_admin_is_protected(
     )
     assert demote_admin_response.status_code == 400
 
+
+def test_ask_without_auth(client: TestClient) -> None:
+    response = client.post("/api/butler/ask", json={"message": "hola"})
+    assert response.status_code == 401
+
+
+def test_ask_with_valid_token(client: TestClient) -> None:
+    tokens = login(client)
+    response = client.post(
+        "/api/butler/ask",
+        json={"message": "hola Alfred"},
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code == 200
+    actions = response.json()
+    assert len(actions) == 1
+    assert actions[0]["type"] == "speak"
+    assert "hola Alfred" in actions[0]["message"]
+
+
+def test_ask_response_is_list(client: TestClient) -> None:
+    tokens = login(client)
+    response = client.post(
+        "/api/butler/ask",
+        json={"message": "test"},
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert isinstance(response.json(), list)
