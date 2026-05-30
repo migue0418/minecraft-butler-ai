@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +36,9 @@ class AuthService:
         self.auth_repository = AuthRepository(session)
         self.users_repository = UsersRepository(session)
 
+    _MAX_FAILED_ATTEMPTS = 5
+    _LOCKOUT_MINUTES = 15
+
     async def login(
         self,
         payload: LoginRequest,
@@ -41,16 +46,38 @@ class AuthService:
         request: Request,
     ) -> TokenResponse:
         user = await self.users_repository.get_user_by_username(payload.username)
+
+        now = utcnow()
+
+        if (
+            user is not None
+            and user.locked_until is not None
+            and user.locked_until > now
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Cuenta temporalmente bloqueada. Inténtalo de nuevo más tarde",
+            )
+
         if user is None or not verify_password(payload.password, user.password_hash):
+            if user is not None:
+                user.failed_login_attempts += 1
+                if user.failed_login_attempts >= self._MAX_FAILED_ATTEMPTS:
+                    user.locked_until = now + timedelta(minutes=self._LOCKOUT_MINUTES)
+                await self.session.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Credenciales invalidas",
             )
+
         if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Usuario inactivo",
             )
+
+        user.failed_login_attempts = 0
+        user.locked_until = None
 
         await self._issue_refresh_token(
             user=user,

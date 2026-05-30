@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_session
 from app.features.roles.models import Role
 from app.features.roles.repository import RolesRepository
-from app.features.roles.schemas import CreateRoleRequest, RoleResponse, UpdateRoleRequest
+from app.features.roles.schemas import (
+    CreateRoleRequest,
+    RoleResponse,
+    UpdateRoleRequest,
+)
 
 SYSTEM_ROLE_NAMES = {"admin", "user"}
 
@@ -61,6 +65,16 @@ class RolesService:
         await self.session.commit()
         await self.session.refresh(role)
         return self._serialize_role(role)
+
+    async def delete_role(self, role_id: int) -> None:
+        role = await self._get_role_or_404(role_id)
+        if role.name in SYSTEM_ROLE_NAMES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se puede eliminar un rol del sistema",
+            )
+        await self.roles_repository.delete_role(role)
+        await self.session.commit()
 
     async def _get_role_or_404(self, role_id: int) -> Role:
         role = await self.roles_repository.get_role_by_id(role_id)
