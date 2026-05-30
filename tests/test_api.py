@@ -4,7 +4,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
@@ -662,6 +662,8 @@ def test_ask_response_is_list(client: TestClient) -> None:
             return_value={
                 "message": "test",
                 "intent": "speak",
+                "doc_type": "none",
+                "retrieved_docs": [],
                 "actions": _SPEAK_RESPONSE,
             },
         ),
@@ -682,6 +684,8 @@ def test_ask_with_coordinates_returns_move_to_position(client: TestClient) -> No
             return_value={
                 "message": "ve a 100 64 -50",
                 "intent": "move",
+                "doc_type": "none",
+                "retrieved_docs": [],
                 "actions": _MOVE_RESPONSE,
             },
         ),
@@ -708,6 +712,8 @@ def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
             return_value={
                 "message": "hola Alfred",
                 "intent": "speak",
+                "doc_type": "none",
+                "retrieved_docs": [],
                 "actions": _SPEAK_RESPONSE,
             },
         ),
@@ -732,6 +738,8 @@ async def test_butler_service_question_intent() -> None:
     mock_state = {
         "message": "¿cómo fabrico una espada?",
         "intent": "question",
+        "doc_type": "item",
+        "retrieved_docs": [],
         "actions": [{"type": "speak", "message": "Necesitas 2 palos y 3 diamantes."}],
     }
     with patch(
@@ -754,6 +762,8 @@ async def test_butler_service_move_intent() -> None:
     mock_state = {
         "message": "ve a 100 64 -200",
         "intent": "move",
+        "doc_type": "none",
+        "retrieved_docs": [],
         "actions": [
             {
                 "type": "move_to_position",
@@ -778,3 +788,102 @@ async def test_butler_service_move_intent() -> None:
     assert actions[0].x == 100
     assert actions[0].y == 64
     assert actions[0].z == -200
+
+
+# ── classify_intent doc_type tests ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_classify_intent_item_question_sets_doc_type() -> None:
+    """classify_intent devuelve doc_type='item' para preguntas de crafteo."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from app.features.butler.graph.nodes import IntentOutput, classify_intent
+
+    mock_result = IntentOutput(intent="question", doc_type="item")
+    with patch(
+        "app.features.butler.graph.nodes.get_llm",
+        return_value=MagicMock(
+            with_structured_output=MagicMock(
+                return_value=MagicMock(
+                    ainvoke=_AsyncMock(return_value=mock_result),
+                ),
+            ),
+        ),
+    ):
+        result = await classify_intent(
+            {
+                "message": "¿cómo fabrico una espada de diamante?",
+                "intent": "",
+                "doc_type": "none",
+                "retrieved_docs": [],
+                "actions": [],
+            },
+        )
+
+    assert result["intent"] == "question"
+    assert result["doc_type"] == "item"
+
+
+@pytest.mark.asyncio
+async def test_classify_intent_mob_question_sets_doc_type() -> None:
+    """classify_intent devuelve doc_type='mob' para preguntas sobre mobs."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from app.features.butler.graph.nodes import IntentOutput, classify_intent
+
+    mock_result = IntentOutput(intent="question", doc_type="mob")
+    with patch(
+        "app.features.butler.graph.nodes.get_llm",
+        return_value=MagicMock(
+            with_structured_output=MagicMock(
+                return_value=MagicMock(
+                    ainvoke=_AsyncMock(return_value=mock_result),
+                ),
+            ),
+        ),
+    ):
+        result = await classify_intent(
+            {
+                "message": "¿qué dropea un creeper?",
+                "intent": "",
+                "doc_type": "none",
+                "retrieved_docs": [],
+                "actions": [],
+            },
+        )
+
+    assert result["intent"] == "question"
+    assert result["doc_type"] == "mob"
+
+
+@pytest.mark.asyncio
+async def test_classify_intent_move_sets_doc_type_none() -> None:
+    """classify_intent devuelve doc_type='none' para intents de movimiento."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from app.features.butler.graph.nodes import IntentOutput, classify_intent
+
+    mock_result = IntentOutput(intent="move", doc_type="none")
+    with patch(
+        "app.features.butler.graph.nodes.get_llm",
+        return_value=MagicMock(
+            with_structured_output=MagicMock(
+                return_value=MagicMock(
+                    ainvoke=_AsyncMock(return_value=mock_result),
+                ),
+            ),
+        ),
+    ):
+        result = await classify_intent(
+            {
+                "message": "ve a 100 64 -200",
+                "intent": "",
+                "doc_type": "none",
+                "retrieved_docs": [],
+                "actions": [],
+            },
+        )
+
+    assert result["intent"] == "move"
+    assert result["doc_type"] == "none"

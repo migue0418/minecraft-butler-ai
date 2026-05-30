@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Literal
 
 from langchain_core.embeddings import Embeddings
@@ -6,6 +7,24 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from app.core.settings import get_settings
 
 LLMRole = Literal["classifier", "responder"]
+
+
+def _apply_hf_ssl_bypass_if_needed() -> None:
+    """Aplica bypass SSL para HuggingFace Hub cuando ssl_verify=False.
+
+    Necesario en entornos con proxy corporativo: sentence_transformers comprueba
+    adapter_config.json en HF Hub al cargar el modelo, aunque esté en caché local.
+    """
+    settings = get_settings()
+    if settings.ssl_verify:
+        return
+    try:
+        import httpx
+        from huggingface_hub.utils._http import set_client_factory
+
+        set_client_factory(lambda: httpx.Client(verify=False))
+    except Exception:
+        pass
 
 
 def get_llm(role: LLMRole) -> BaseChatModel:
@@ -43,12 +62,17 @@ def get_llm(role: LLMRole) -> BaseChatModel:
     )
 
 
+@lru_cache(maxsize=1)
 def get_embedding_model() -> Embeddings:
     """Devuelve una instancia de Embeddings configurada según Settings.
+
+    Usa lru_cache para crear el modelo una sola vez por proceso (carga ~150MB).
+    Aplica bypass SSL si ssl_verify=False (proxy corporativo).
 
     Raises:
         ValueError: Si embedding_provider no está soportado.
     """
+    _apply_hf_ssl_bypass_if_needed()
     settings = get_settings()
 
     if settings.embedding_provider == "huggingface":

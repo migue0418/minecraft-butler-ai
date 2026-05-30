@@ -103,8 +103,16 @@ class TestSettingsLLMValidation:
         assert settings.classifier_model == "claude-haiku-4-5-20251001"
         assert settings.responder_model == "claude-sonnet-4-6"
         assert settings.embedding_provider == "huggingface"
-        assert settings.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+        assert settings.embedding_model == "paraphrase-multilingual-MiniLM-L12-v2"
         assert settings.openai_api_key == ""
+
+    def test_default_qdrant_settings(self):
+        settings = _make_settings()
+        assert settings.qdrant_url == "http://localhost:6333"
+        assert settings.qdrant_collection == "minecraft_knowledge"
+        assert settings.qdrant_api_key == ""
+        assert settings.qdrant_top_k == 5
+        assert settings.qdrant_prefetch_limit == 20
 
 
 # ── get_llm ───────────────────────────────────────────────────────────────────
@@ -211,6 +219,11 @@ class TestGetLlm:
 
 
 class TestGetEmbeddingModel:
+    def setup_method(self):
+        from app.features.butler.llm.factory import get_embedding_model
+
+        get_embedding_model.cache_clear()
+
     def test_huggingface_provider_returns_huggingface_embeddings(self):
         from app.features.butler.llm import get_embedding_model
 

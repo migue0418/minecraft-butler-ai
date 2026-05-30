@@ -20,7 +20,7 @@ El backend es el **cerebro del agente**: no ejecuta acciones en Minecraft direct
 | API | FastAPI + SQLAlchemy async + Alembic + PostgreSQL |
 | Autenticación | JWT (access 15 min) + refresh token (cookie HTTP-only) |
 | Agente LLM | LangChain + LangGraph |
-| Retrieval | RAG (pendiente de implementar) |
+| Retrieval | RAG — Qdrant + hybrid search + FlashRank reranker |
 | Voz | STT (pendiente de implementar) |
 | Observabilidad | LangSmith |
 | Seguridad | SlowAPI (rate limiting), account lockout, argon2 |
@@ -29,19 +29,35 @@ El backend es el **cerebro del agente**: no ejecuta acciones en Minecraft direct
 ## Inicio rápido (Docker)
 
 ```powershell
-cp .example.env .env   # rellenar variables
+cp .example.env .env   # rellenar ANTHROPIC_API_KEY y otras vars
 docker compose up --build
 ```
 
 API disponible en `http://localhost:8000/api/documentation`
 Credenciales por defecto: `admin` / `ChangeMe123!`
 
-## Desarrollo local
+### Ingesta del conocimiento Minecraft (RAG)
 
-Requiere [uv](https://docs.astral.sh/uv/getting-started/installation/) y PostgreSQL.
+Tras levantar los servicios, ejecuta una vez el script de ingesta para poblar Qdrant:
 
 ```powershell
+uv run python scripts/ingest.py
+```
+
+Descarga ~1665 documentos (ítems, mobs y mecánicas de la Minecraft Wiki) y los indexa en Qdrant.
+Usa `--force` para reindexar si cambias el modelo de embeddings.
+
+## Desarrollo local
+
+Requiere [uv](https://docs.astral.sh/uv/getting-started/installation/), PostgreSQL y Qdrant.
+
+```powershell
+# Levantar Qdrant
+docker compose up -d qdrant
+
+# Instalar dependencias e iniciar backend
 uv sync
+uv run python scripts/ingest.py   # solo la primera vez
 uv run uvicorn app.main:app --reload
 ```
 

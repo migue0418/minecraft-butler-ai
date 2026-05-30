@@ -1,7 +1,7 @@
 from app.features.butler.graph.state import ButlerState
 
 _INTENT_TO_NODE: dict[str, str] = {
-    "question": "answer_question",
+    "question": "retrieve_context",
     "move": "move_action",
     "speak": "speak_action",
 }

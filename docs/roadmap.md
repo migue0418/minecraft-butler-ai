@@ -62,11 +62,20 @@ Docker compose final: `postgres` + `backend` + `qdrant` + `redis`
 - Validación de API keys en Settings según proveedor activo
 - 17 tests TDD del factory
 
+### `rag-core`
+- Qdrant en Docker con hybrid search (dense `paraphrase-multilingual-MiniLM-L12-v2` + sparse BM42)
+- Script de ingesta `scripts/ingest.py`: 1665 docs (1415 ítems + 151 mobs + 99 mecánicas wiki)
+- FlashRank cross-encoder reranker (local, gratis)
+- Parent Document Retrieval para mecánicas wiki
+- Metadata filtering por `doc_type` (item/mob/mechanic) via `classify_intent`
+- Nodo `retrieve_context` en el grafo entre `classify_intent` y `answer_question`
+- 22 tests TDD nuevos (54 total en verde)
+
 ---
 
 ## Roadmap pendiente
 
-### Fase 1 — `rag-core` ⭐⭐⭐ (máximo impacto portfolio)
+### Fase 2 — `conversation-memory` ⭐⭐⭐ (antes era Fase 1 rag-core, ya completada)
 
 **Qué demuestra:** diseño de pipelines RAG de producción — hybrid search, reranking, ingesta.
 

@@ -7,7 +7,13 @@ _graph = compile_graph()
 class ButlerService:
     async def run(self, message: str) -> list[ButlerAction]:
         state = await _graph.ainvoke(
-            {"message": message, "intent": "", "actions": []},
+            {
+                "message": message,
+                "intent": "",
+                "doc_type": "none",
+                "retrieved_docs": [],
+                "actions": [],
+            },
         )
         return [ButlerAction(**action) for action in state["actions"]]
 
