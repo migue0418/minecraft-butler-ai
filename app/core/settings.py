@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "ChangeMe123!"
     anthropic_api_key: str = ""
+    llm_provider: Literal["anthropic", "openai"] = "anthropic"
+    classifier_model: str = "claude-haiku-4-5-20251001"
+    responder_model: str = "claude-sonnet-4-6"
+    embedding_provider: Literal["openai", "huggingface"] = "huggingface"
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    openai_api_key: str = ""
     langsmith_api_key: str = ""
     langsmith_project: str = "minecraftbutlerai"
     langsmith_endpoint: str = ""
@@ -39,6 +45,24 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SECRET_KEY debe tener al menos 32 caracteres en producción. "
                 'Genera una con: python -c "import secrets; print(secrets.token_hex(32))"',
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_llm_api_keys(self) -> "Settings":
+        if self.environment == "test":
+            return self
+        if self.llm_provider == "anthropic" and not self.anthropic_api_key:
+            raise ValueError(
+                "ANTHROPIC_API_KEY es obligatoria cuando LLM_PROVIDER=anthropic.",
+            )
+        if self.llm_provider == "openai" and not self.openai_api_key:
+            raise ValueError(
+                "OPENAI_API_KEY es obligatoria cuando LLM_PROVIDER=openai.",
+            )
+        if self.embedding_provider == "openai" and not self.openai_api_key:
+            raise ValueError(
+                "OPENAI_API_KEY es obligatoria cuando EMBEDDING_PROVIDER=openai.",
             )
         return self
 

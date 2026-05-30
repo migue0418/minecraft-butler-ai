@@ -99,6 +99,37 @@ class UsersRepository:
 - **Nunca SQLite**: los tests corren contra PostgreSQL (ver `docs/verification-guide.md`).
 - No mockear la base de datos para tests de integración de endpoints.
 
+## LLM Factory (`app/features/butler/llm/`)
+
+El slice `butler` abstrae la instanciación de LLMs y embeddings detrás de dos factory functions config-driven:
+
+```python
+from app.features.butler.llm import get_llm, get_embedding_model
+
+llm = get_llm("classifier")   # → BaseChatModel (Haiku o GPT-4o-mini)
+llm = get_llm("responder")    # → BaseChatModel (Sonnet o GPT-4o)
+emb = get_embedding_model()   # → Embeddings (HuggingFace o OpenAI)
+```
+
+El proveedor y los modelos se leen de `Settings`:
+
+| Variable de entorno | Default | Descripción |
+|---|---|---|
+| `LLM_PROVIDER` | `anthropic` | `anthropic` \| `openai` |
+| `CLASSIFIER_MODEL` | `claude-haiku-4-5-20251001` | Modelo rápido para clasificación |
+| `RESPONDER_MODEL` | `claude-sonnet-4-6` | Modelo principal de respuesta |
+| `EMBEDDING_PROVIDER` | `huggingface` | `huggingface` \| `openai` |
+| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Modelo de embeddings |
+| `OPENAI_API_KEY` | `` | Obligatoria si `LLM_PROVIDER=openai` |
+
+### Añadir un nuevo proveedor LLM
+
+1. Instalar el paquete langchain del proveedor: `uv add langchain-<provider>`.
+2. Añadir un nuevo `if settings.llm_provider == "<provider>":` en `factory.py::get_llm`.
+3. Ampliar el `Literal` de `llm_provider` en `Settings`.
+4. Añadir la validación de API key en `validate_llm_api_keys`.
+5. Escribir tests en `tests/features/butler/test_llm_factory.py`.
+
 ## Seguridad
 
 - Passwords con `pwdlib[argon2]` (`hash_password`/`verify_password` en `app.features.auth.security`).
