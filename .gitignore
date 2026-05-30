@@ -21,7 +21,19 @@ frontend/coverage/
 
 .idea/
 .vscode/
-.claude/
+
+# Claude Code: versiona la capa SDD (skills/commands/agents/rules) y deja fuera lo local/personal
+.claude/*
+!.claude/agents/
+!.claude/commands/
+!.claude/rules/
+!.claude/skills/
+.claude/settings.local.json
+
 .superpowers/
 docs/superpowers/
-CLAUDE.md
+
+# Artefactos temporales (p. ej. la skill enrich-us escribe en tmp/)
+tmp/
+
+.playwright-mcp/
