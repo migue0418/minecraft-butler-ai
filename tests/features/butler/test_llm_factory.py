@@ -237,9 +237,9 @@ class TestGetEmbeddingModel:
         ):
             with patch("langchain_huggingface.HuggingFaceEmbeddings") as mock_cls:
                 get_embedding_model()
-        mock_cls.assert_called_once_with(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-        )
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["model_name"] == "sentence-transformers/all-MiniLM-L6-v2"
+        assert "model_kwargs" in call_kwargs
 
     def test_openai_provider_returns_openai_embeddings(self):
         from langchain_openai import OpenAIEmbeddings
@@ -284,6 +284,6 @@ class TestGetEmbeddingModel:
         ):
             with patch("langchain_huggingface.HuggingFaceEmbeddings") as mock_cls:
                 get_embedding_model()
-        mock_cls.assert_called_once_with(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-        )
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["model_name"] == "sentence-transformers/all-MiniLM-L6-v2"
+        assert "model_kwargs" in call_kwargs

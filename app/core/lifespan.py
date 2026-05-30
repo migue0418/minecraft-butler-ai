@@ -47,9 +47,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if settings.langsmith_endpoint:
             os.environ["LANGCHAIN_ENDPOINT"] = settings.langsmith_endpoint
             os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
-        if settings.langchain_tracing:
-            os.environ["LANGCHAIN_TRACING_V2"] = "true"
-            os.environ["LANGSMITH_TRACING"] = "true"
+
+    tracing_enabled = settings.langchain_tracing or (
+        os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true"
+    )
+    if tracing_enabled:
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGSMITH_TRACING"] = "true"
 
     await init_database()
     async with session_scope() as session:
