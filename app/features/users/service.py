@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
+from app.core.datetime import utcnow
 from app.features.auth.repository import AuthRepository
 from app.features.auth.security import hash_password, verify_password
 from app.features.roles.repository import RolesRepository
@@ -110,7 +111,7 @@ class UsersService:
         if not verify_password(payload.current_password, current_user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="La contrasena actual no es valida",
+                detail="La contraseña actual no es válida",
             )
 
         current_user.password_hash = hash_password(payload.new_password)
@@ -161,7 +162,9 @@ class UsersService:
         if not is_current_active_admin or will_remain_active_admin:
             return
 
-        active_admins = await self.users_repository.count_active_users_with_role("admin")
+        active_admins = await self.users_repository.count_active_users_with_role(
+            "admin",
+        )
         if active_admins <= 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -169,6 +172,7 @@ class UsersService:
             )
 
     def _serialize_user(self, user: User) -> UserResponse:
+        now = utcnow()
         return UserResponse(
             id=user.id,
             username=user.username,
@@ -176,6 +180,8 @@ class UsersService:
             email=user.email,
             is_active=user.is_active,
             roles=sorted(role.name for role in user.roles),
+            is_locked=user.locked_until is not None and user.locked_until > now,
+            locked_until=user.locked_until,
         )
 
     def _serialize_user_detail(self, user: User) -> UserDetailResponse:

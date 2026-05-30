@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
+from app.core.limiter import limiter
 from app.features.auth.dependencies import get_authenticated_user
 from app.features.auth.schemas import (
     AuthenticatedUserResponse,
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
 async def login(
     payload: LoginRequest,
     request: Request,
@@ -27,6 +29,7 @@ async def login(
 
 
 @router.post("/token", response_model=TokenResponse, include_in_schema=False)
+@limiter.limit("10/minute")
 async def token(
     request: Request,
     response: Response,
@@ -45,6 +48,7 @@ async def token(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("20/minute")
 async def refresh(
     request: Request,
     response: Response,

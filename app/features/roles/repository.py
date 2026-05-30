@@ -35,3 +35,7 @@ class RolesRepository:
         await self.session.flush()
         await self.session.refresh(role)
         return role
+
+    async def delete_role(self, role: Role) -> None:
+        await self.session.delete(role)
+        await self.session.flush()
