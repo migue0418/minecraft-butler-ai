@@ -201,6 +201,7 @@ def build_client(
     monkeypatch.setenv("SECRET_KEY", "test-secret-key-with-at-least-32-bytes")
     monkeypatch.setenv("ADMIN_USERNAME", "admin")
     monkeypatch.setenv("ADMIN_PASSWORD", "ChangeMe123!")
+    monkeypatch.setenv("ENVIRONMENT", "test")
     get_settings.cache_clear()
 
     if initializer is not None:

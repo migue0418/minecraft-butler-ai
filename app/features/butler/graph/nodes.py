@@ -1,13 +1,9 @@
 from typing import Literal
 
-from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel
 
-from app.core.settings import get_settings
 from app.features.butler.graph.state import ButlerState
-
-_CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
-_RESPONDER_MODEL = "claude-sonnet-4-6"
+from app.features.butler.llm import get_llm
 
 _MINECRAFT_SYSTEM_PROMPT = (
     "Eres un asistente experto en Minecraft. "
@@ -21,16 +17,8 @@ class IntentOutput(BaseModel):
     intent: Literal["question", "move", "speak"]
 
 
-def _get_llm(model: str) -> ChatAnthropic:
-    settings = get_settings()
-    return ChatAnthropic(
-        model=model,
-        api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
-    )
-
-
 async def classify_intent(state: ButlerState) -> dict:
-    llm = _get_llm(_CLASSIFIER_MODEL).with_structured_output(IntentOutput)
+    llm = get_llm("classifier").with_structured_output(IntentOutput)
     result: IntentOutput = await llm.ainvoke(
         [
             {
@@ -49,7 +37,7 @@ async def classify_intent(state: ButlerState) -> dict:
 
 
 async def answer_question(state: ButlerState) -> dict:
-    llm = _get_llm(_RESPONDER_MODEL)
+    llm = get_llm("responder")
     response = await llm.ainvoke(
         [
             {"role": "system", "content": _MINECRAFT_SYSTEM_PROMPT},
