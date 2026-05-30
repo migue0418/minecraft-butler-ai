@@ -96,6 +96,12 @@ uv run alembic upgrade head
 | `DATABASE_URL` | URL de conexión a PostgreSQL |
 | `ADMIN_USERNAME` | Usuario administrador inicial |
 | `ADMIN_PASSWORD` | Contraseña del administrador inicial |
+| `ANTHROPIC_API_KEY` | **Obligatorio** — clave de la API de Anthropic (Claude) |
+| `LANGSMITH_API_KEY` | Opcional — clave de LangSmith para tracing |
+| `LANGSMITH_PROJECT` | Nombre del proyecto en LangSmith (default: `minecraftbutlerai`) |
+| `LANGSMITH_ENDPOINT` | Endpoint de LangSmith (p. ej. `https://eu.api.smith.langchain.com`) |
+| `LANGCHAIN_TRACING_V2` | `true` para activar tracing en LangSmith |
+| `SSL_VERIFY` | `false` en entornos con certificados corporativos/proxy |
 
 ## Dependencias
 
