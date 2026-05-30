@@ -4,6 +4,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
@@ -610,37 +611,85 @@ def test_ask_without_auth(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+_SPEAK_RESPONSE = [{"type": "speak", "message": "Respuesta de prueba"}]
+_MOVE_RESPONSE = [
+    {
+        "type": "move_to_position",
+        "message": "Me dirijo allí.",
+        "x": 100,
+        "y": 64,
+        "z": -50,
+    },
+]
+
+
 def test_ask_with_valid_token(client: TestClient) -> None:
     tokens = login(client)
-    response = client.post(
-        "/api/butler/ask",
-        json={"message": "hola Alfred"},
-        headers=auth_headers(tokens["access_token"]),
-    )
+    with patch(
+        "app.features.butler.service.ButlerService.run",
+        new_callable=AsyncMock,
+        return_value=[
+            type(
+                "ButlerAction",
+                (),
+                {
+                    "type": "speak",
+                    "message": "Respuesta de prueba",
+                    "x": None,
+                    "y": None,
+                    "z": None,
+                },
+            )(),
+        ],
+    ):
+        response = client.post(
+            "/api/butler/ask",
+            json={"message": "hola Alfred"},
+            headers=auth_headers(tokens["access_token"]),
+        )
     assert response.status_code == 200
     actions = response.json()
     assert len(actions) == 1
     assert actions[0]["type"] == "speak"
-    assert "hola Alfred" in actions[0]["message"]
 
 
 def test_ask_response_is_list(client: TestClient) -> None:
     tokens = login(client)
-    response = client.post(
-        "/api/butler/ask",
-        json={"message": "test"},
-        headers=auth_headers(tokens["access_token"]),
-    )
+    with patch(
+        "app.features.butler.service._graph",
+        ainvoke=AsyncMock(
+            return_value={
+                "message": "test",
+                "intent": "speak",
+                "actions": _SPEAK_RESPONSE,
+            },
+        ),
+    ):
+        response = client.post(
+            "/api/butler/ask",
+            json={"message": "test"},
+            headers=auth_headers(tokens["access_token"]),
+        )
     assert isinstance(response.json(), list)
 
 
 def test_ask_with_coordinates_returns_move_to_position(client: TestClient) -> None:
     tokens = login(client)
-    response = client.post(
-        "/api/butler/ask",
-        json={"message": "ve a 100 64 -50"},
-        headers=auth_headers(tokens["access_token"]),
-    )
+    with patch(
+        "app.features.butler.service._graph",
+        ainvoke=AsyncMock(
+            return_value={
+                "message": "ve a 100 64 -50",
+                "intent": "move",
+                "actions": _MOVE_RESPONSE,
+            },
+        ),
+    ):
+        response = client.post(
+            "/api/butler/ask",
+            json={"message": "ve a 100 64 -50"},
+            headers=auth_headers(tokens["access_token"]),
+        )
     assert response.status_code == 200
     actions = response.json()
     assert len(actions) == 1
@@ -652,12 +701,79 @@ def test_ask_with_coordinates_returns_move_to_position(client: TestClient) -> No
 
 def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
     tokens = login(client)
-    response = client.post(
-        "/api/butler/ask",
-        json={"message": "hola Alfred"},
-        headers=auth_headers(tokens["access_token"]),
-    )
+    with patch(
+        "app.features.butler.service._graph",
+        ainvoke=AsyncMock(
+            return_value={
+                "message": "hola Alfred",
+                "intent": "speak",
+                "actions": _SPEAK_RESPONSE,
+            },
+        ),
+    ):
+        response = client.post(
+            "/api/butler/ask",
+            json={"message": "hola Alfred"},
+            headers=auth_headers(tokens["access_token"]),
+        )
     assert response.status_code == 200
     actions = response.json()
     assert len(actions) == 1
     assert actions[0]["type"] == "speak"
+
+
+# ── Butler graph unit tests ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_butler_service_question_intent() -> None:
+    """ButlerService.run devuelve speak cuando el grafo clasifica 'question'."""
+    mock_state = {
+        "message": "¿cómo fabrico una espada?",
+        "intent": "question",
+        "actions": [{"type": "speak", "message": "Necesitas 2 palos y 3 diamantes."}],
+    }
+    with patch(
+        "app.features.butler.service._graph",
+        ainvoke=AsyncMock(return_value=mock_state),
+    ):
+        from app.features.butler.service import ButlerService
+
+        service = ButlerService()
+        actions = await service.run("¿cómo fabrico una espada?")
+
+    assert len(actions) == 1
+    assert actions[0].type == "speak"
+    assert "diamantes" in actions[0].message
+
+
+@pytest.mark.asyncio
+async def test_butler_service_move_intent() -> None:
+    """ButlerService.run devuelve move_to_position cuando el grafo clasifica 'move'."""
+    mock_state = {
+        "message": "ve a 100 64 -200",
+        "intent": "move",
+        "actions": [
+            {
+                "type": "move_to_position",
+                "message": "Me dirijo allí.",
+                "x": 100,
+                "y": 64,
+                "z": -200,
+            },
+        ],
+    }
+    with patch(
+        "app.features.butler.service._graph",
+        ainvoke=AsyncMock(return_value=mock_state),
+    ):
+        from app.features.butler.service import ButlerService
+
+        service = ButlerService()
+        actions = await service.run("ve a 100 64 -200")
+
+    assert len(actions) == 1
+    assert actions[0].type == "move_to_position"
+    assert actions[0].x == 100
+    assert actions[0].y == 64
+    assert actions[0].z == -200

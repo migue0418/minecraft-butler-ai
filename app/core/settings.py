@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     database_url: str = DEFAULT_DATABASE_URL
     admin_username: str = "admin"
     admin_password: str = "ChangeMe123!"
+    anthropic_api_key: str = ""
+    langsmith_api_key: str = ""
+    langsmith_project: str = "minecraftbutlerai"
+    langsmith_endpoint: str = ""
+    langchain_tracing: bool = False
+    ssl_verify: bool = True
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
