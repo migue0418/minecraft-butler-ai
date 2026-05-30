@@ -54,11 +54,13 @@ async def retrieve_context(state: ButlerState) -> dict:
     from app.features.butler.rag import get_retriever
 
     retriever = get_retriever()
-    doc_type_filter = state.get("doc_type", "none")
-    if doc_type_filter == "none":
-        doc_type_filter = None
 
-    retrieved = retriever(state["message"], doc_type_filter=doc_type_filter)
+    # No filtramos por doc_type. El clasificador (un LLM) infiere el tipo a partir
+    # de palabras de la consulta y se equivoca en casos como "¿qué items dropea
+    # una vaca?" (lo marca como item), donde el documento correcto es el del mob
+    # Cow y un filtro duro lo excluiría. El retriever denso es cross-lingual y
+    # selecciona el tipo correcto por semántica, así que confiamos en su ranking.
+    retrieved = retriever(state["message"])
     docs_as_dicts = [doc.model_dump() for doc in retrieved]
     return {"retrieved_docs": docs_as_dicts}
 

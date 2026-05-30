@@ -47,6 +47,15 @@ Cumple los 3 escenarios del spec `rag-pipeline`.
 
 (El body con caracteres no-ASCII se envió vía httpx por encoding del shell; el endpoint responde 200 y con el contexto correcto.)
 
+## Filtro duro por doc_type (arreglo adicional)
+
+Tras el fix dense-only, se detectó un segundo problema independiente del retriever: `retrieve_context` filtraba por el `doc_type` que infiere el clasificador. Para "¿qué items dropea una vaca?" el clasificador devolvía `item`, y el filtro excluía el documento del mob Cow → el LLM caía a conocimiento general.
+
+- Verificación: `dense_search("¿Qué items dropea una vaca?")` **sin filtro** → Cow top-1 (0.638); "¿qué dropea el mineral de hierro?" → Iron Ore top-1 (el denso acierta el tipo por semántica).
+- Fix: `retrieve_context` deja de pasar `doc_type` como filtro. Test `test_retrieve_context_does_not_hard_filter_by_doc_type`.
+- HTTP `POST /api/butler/ask` "¿Qué items dropea una vaca?" → 200, respuesta fundamentada ("Según la información oficial, una vaca dropea... carne, cuero, leche").
+- Suite: **53 passed**.
+
 ## Resultado
 
-El butler responde correctamente preguntas en español: la recuperación deja de ser aleatoria. No requiere reingesta ni cambios de datos.
+El butler responde correctamente preguntas en español: la recuperación deja de ser aleatoria, y las preguntas de drops ya no se rompen por la palabra usada ("items" vs "objetos"). No requiere reingesta ni cambios de datos.

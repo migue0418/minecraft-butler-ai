@@ -887,3 +887,31 @@ async def test_classify_intent_move_sets_doc_type_none() -> None:
 
     assert result["intent"] == "move"
     assert result["doc_type"] == "none"
+
+
+# ── retrieve_context (sin filtro duro por doc_type) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_retrieve_context_does_not_hard_filter_by_doc_type() -> None:
+    """retrieve_context NO filtra por doc_type: el clasificador puede equivocar el
+    tipo (p.ej. "¿qué items dropea una vaca?" → item, excluyendo el doc del mob
+    Cow). El retriever denso elige el tipo correcto por semántica."""
+    from app.features.butler.graph.nodes import retrieve_context
+
+    mock_retriever = MagicMock(return_value=[])
+    with patch(
+        "app.features.butler.rag.get_retriever",
+        return_value=mock_retriever,
+    ):
+        await retrieve_context(
+            {
+                "message": "¿qué items dropea una vaca?",
+                "intent": "question",
+                "doc_type": "item",
+                "retrieved_docs": [],
+                "actions": [],
+            },
+        )
+
+    mock_retriever.assert_called_once_with("¿qué items dropea una vaca?")
