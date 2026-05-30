@@ -12,9 +12,18 @@ _MINECRAFT_SYSTEM_PROMPT = (
     "proporciona respuestas precisas y directas."
 )
 
+_MINECRAFT_SYSTEM_PROMPT_WITH_CONTEXT = (
+    "Eres un asistente experto en Minecraft. "
+    "Responde en español de forma concisa y útil. "
+    "Usa el siguiente contexto recuperado de la base de conocimiento oficial de Minecraft "
+    "para responder la pregunta. Si el contexto no es suficiente, responde con tu conocimiento general.\n\n"
+    "{context}"
+)
+
 
 class IntentOutput(BaseModel):
     intent: Literal["question", "move", "speak"]
+    doc_type: Literal["item", "mob", "mechanic", "none"] = "none"
 
 
 async def classify_intent(state: ButlerState) -> dict:
@@ -27,20 +36,52 @@ async def classify_intent(state: ButlerState) -> dict:
                     "Clasifica la intención del usuario de Minecraft en una de estas categorías:\n"
                     "- question: preguntas sobre el juego, crafteo, mecánicas, objetos, estrategias\n"
                     "- move: instrucciones de movimiento o desplazamiento con coordenadas\n"
-                    "- speak: cualquier otro mensaje, saludos o conversación general"
+                    "- speak: cualquier otro mensaje, saludos o conversación general\n\n"
+                    "Además, si la intención es 'question', clasifica el tipo de documento más relevante:\n"
+                    "- item: preguntas sobre ítems, objetos, herramientas, armaduras, recetas de crafteo\n"
+                    "- mob: preguntas sobre mobs, criaturas, enemigos, animales\n"
+                    "- mechanic: preguntas sobre mecánicas del juego, sistemas, survival, redstone\n"
+                    "- none: si la intención no es 'question' o no aplica ningún tipo anterior"
                 ),
             },
             {"role": "user", "content": state["message"]},
         ],
     )
-    return {"intent": result.intent}
+    return {"intent": result.intent, "doc_type": result.doc_type}
+
+
+async def retrieve_context(state: ButlerState) -> dict:
+    from app.features.butler.rag import get_retriever
+
+    retriever = get_retriever()
+
+    # No filtramos por doc_type. El clasificador (un LLM) infiere el tipo a partir
+    # de palabras de la consulta y se equivoca en casos como "¿qué items dropea
+    # una vaca?" (lo marca como item), donde el documento correcto es el del mob
+    # Cow y un filtro duro lo excluiría. El retriever denso es cross-lingual y
+    # selecciona el tipo correcto por semántica, así que confiamos en su ranking.
+    retrieved = retriever(state["message"])
+    docs_as_dicts = [doc.model_dump() for doc in retrieved]
+    return {"retrieved_docs": docs_as_dicts}
 
 
 async def answer_question(state: ButlerState) -> dict:
     llm = get_llm("responder")
+
+    retrieved_docs = state.get("retrieved_docs", [])
+    if retrieved_docs:
+        from app.features.butler.rag.retriever import build_context
+        from app.features.butler.rag.schemas import RetrievedDoc
+
+        docs = [RetrievedDoc(**d) for d in retrieved_docs]
+        context = build_context(docs)
+        system_prompt = _MINECRAFT_SYSTEM_PROMPT_WITH_CONTEXT.format(context=context)
+    else:
+        system_prompt = _MINECRAFT_SYSTEM_PROMPT
+
     response = await llm.ainvoke(
         [
-            {"role": "system", "content": _MINECRAFT_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": state["message"]},
         ],
     )

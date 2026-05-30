@@ -130,6 +130,65 @@ El proveedor y los modelos se leen de `Settings`:
 4. Añadir la validación de API key en `validate_llm_api_keys`.
 5. Escribir tests en `tests/features/butler/test_llm_factory.py`.
 
+## RAG Pipeline (`app/features/butler/rag/`)
+
+El butler usa un pipeline RAG para responder preguntas sobre Minecraft con fuente de verdad oficial.
+
+### Módulos
+
+```
+app/features/butler/rag/
+├── __init__.py       # exporta get_retriever()
+├── client.py         # QdrantClient singleton (settings.qdrant_url)
+├── schemas.py        # RetrievedDoc, RetrieverConfig
+└── retriever.py      # dense_search + build_context + get_retriever
+```
+
+### Pipeline de recuperación (dense-only)
+
+```
+Query (ES) → _encode_dense (embeddings multilingües)
+           → Qdrant dense search (named vector "dense", filtro por doc_type, top_k)
+           → build_context() → system prompt del LLM
+```
+
+- **Embeddings**: `paraphrase-multilingual-MiniLM-L12-v2` (multilingual, cross-lingual: queries ES / corpus EN). El modelo denso es **cross-lingual**, así que una pregunta en español recupera correctamente el corpus en inglés.
+- **Parent Document Retrieval**: chunks de wiki indexan `parent_content` en payload → el LLM recibe la sección completa.
+
+> **Por qué dense-only** (ver `openspec/changes/fix-rag-multilingual-retrieval`): el corpus es 100% inglés y los usuarios preguntan en español. La rama **sparse BM42** y el **reranker FlashRank** son léxicos solo-inglés: para consultas en español el sparse devuelve ruido y los rerankers de FlashRank no reordenan ES→EN (el "multilingüe" `ms-marco-MultiBERT-L-12` da scores ~0). Ambas etapas degradaban el ranking del denso. El denso multilingüe por sí solo devuelve el documento correcto en top-1 en ES y EN. La colección Qdrant conserva el named vector `sparse` (lo escribe `scripts/ingest.py`), pero **no se usa en consulta**.
+
+### Metadata filtering
+
+Cada documento tiene `doc_type: "item" | "mob" | "mechanic"` en el payload. `classify_intent` produce `doc_type` que se usa como filtro en Qdrant antes del vector search.
+
+### Ingesta
+
+```bash
+# Primera vez (o tras cambiar el modelo de embeddings)
+uv run python scripts/ingest.py
+
+# Reindexar (--force borra y recrea la colección)
+uv run python scripts/ingest.py --force
+```
+
+Fuentes: `PrismarineJS/minecraft-data 1.21.6` (ítems, mobs) + Minecraft Wiki (mecánicas).
+
+### Añadir un nuevo tipo de documento
+
+1. Añadir función `build_<type>_documents()` en `scripts/ingest.py` siguiendo el patrón existente.
+2. Añadir el valor a `doc_type` en el payload.
+3. Extender `classify_intent` system prompt para reconocer el nuevo tipo.
+4. Re-ejecutar `scripts/ingest.py --force`.
+
+### Variables de entorno Qdrant
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `QDRANT_URL` | `http://localhost:6333` | URL del servidor Qdrant |
+| `QDRANT_COLLECTION` | `minecraft_knowledge` | Nombre de la colección |
+| `QDRANT_TOP_K` | `5` | Docs a devolver al LLM |
+| `QDRANT_PREFETCH_LIMIT` | `20` | Candidatos antes del reranking |
+
 ## Seguridad
 
 - Passwords con `pwdlib[argon2]` (`hash_password`/`verify_password` en `app.features.auth.security`).

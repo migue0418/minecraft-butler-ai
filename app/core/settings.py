@@ -25,8 +25,13 @@ class Settings(BaseSettings):
     classifier_model: str = "claude-haiku-4-5-20251001"
     responder_model: str = "claude-sonnet-4-6"
     embedding_provider: Literal["openai", "huggingface"] = "huggingface"
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
     openai_api_key: str = ""
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_collection: str = "minecraft_knowledge"
+    qdrant_api_key: str = ""
+    qdrant_top_k: int = 5
+    qdrant_prefetch_limit: int = 20
     langsmith_api_key: str = ""
     langsmith_project: str = "minecraftbutlerai"
     langsmith_endpoint: str = ""

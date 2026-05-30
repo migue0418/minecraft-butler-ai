@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Literal
 
 from langchain_core.embeddings import Embeddings
@@ -6,6 +7,30 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from app.core.settings import get_settings
 
 LLMRole = Literal["classifier", "responder"]
+
+
+def _apply_hf_ssl_bypass_if_needed() -> None:
+    """Fuerza carga offline de HuggingFace cuando ssl_verify=False.
+
+    En entornos con proxy corporativo, sentence_transformers hace una llamada
+    de red a HF Hub para comprobar adapter_config.json aunque el modelo esté
+    en caché local. Con TRANSFORMERS_OFFLINE=1 ese check se omite y el modelo
+    carga directamente del caché.
+    """
+    import os
+
+    settings = get_settings()
+    if settings.ssl_verify:
+        return
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+    try:
+        import httpx
+        from huggingface_hub.utils._http import set_client_factory
+
+        set_client_factory(lambda: httpx.Client(verify=False))
+    except Exception:
+        pass
 
 
 def get_llm(role: LLMRole) -> BaseChatModel:
@@ -43,18 +68,30 @@ def get_llm(role: LLMRole) -> BaseChatModel:
     )
 
 
+@lru_cache(maxsize=1)
 def get_embedding_model() -> Embeddings:
     """Devuelve una instancia de Embeddings configurada según Settings.
+
+    Usa lru_cache para crear el modelo una sola vez por proceso (carga ~150MB).
+    Con ssl_verify=False (proxy corporativo) fuerza carga desde caché local para
+    evitar que sentence_transformers intente conectar a HuggingFace Hub.
 
     Raises:
         ValueError: Si embedding_provider no está soportado.
     """
+    _apply_hf_ssl_bypass_if_needed()
     settings = get_settings()
 
     if settings.embedding_provider == "huggingface":
         from langchain_huggingface import HuggingFaceEmbeddings
 
-        return HuggingFaceEmbeddings(model_name=settings.embedding_model)
+        # local_files_only=True evita cualquier llamada de red a HF Hub,
+        # necesario en entornos con proxy SSL corporativo.
+        model_kwargs = {"local_files_only": not settings.ssl_verify}
+        return HuggingFaceEmbeddings(
+            model_name=settings.embedding_model,
+            model_kwargs=model_kwargs,
+        )
 
     if settings.embedding_provider == "openai":
         from langchain_openai import OpenAIEmbeddings
