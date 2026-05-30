@@ -1,5 +1,5 @@
 [project]
-name = "fastapi-template"
+name = "minecraftbutlerai-backend"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,6 +12,8 @@ dependencies = [
     "pyjwt",
     "pwdlib[argon2]",
     "python-multipart",
+    "slowapi",
+    "email-validator",
 ]
 
 [dependency-groups]
