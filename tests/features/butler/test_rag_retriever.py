@@ -1,8 +1,10 @@
-"""Tests TDD para app/features/butler/rag/ (client, schemas, retriever)."""
+"""Tests TDD para app/features/butler/rag/ (client, schemas, retriever).
+
+Pipeline dense-only: dense_search() + build_context(). Sin sparse ni reranker
+(ver openspec/changes/fix-rag-multilingual-retrieval).
+"""
 
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from app.features.butler.rag.schemas import RetrievedDoc, RetrieverConfig
 
@@ -86,17 +88,16 @@ class TestRetrieverConfig:
         assert cfg.collection == "minecraft_knowledge"
 
 
-# ── hybrid_search ─────────────────────────────────────────────────────────────
+# ── dense_search ──────────────────────────────────────────────────────────────
 
 
-class TestHybridSearch:
+class TestDenseSearch:
     def test_returns_list_of_retrieved_docs(self):
-        from app.features.butler.rag.retriever import hybrid_search
+        from app.features.butler.rag.retriever import dense_search
 
         mock_point = _make_qdrant_point("1", "Diamond Sword: weapon.", "item", 0.9)
-        mock_response = _make_query_response([mock_point])
         mock_client = MagicMock()
-        mock_client.query_points.return_value = mock_response
+        mock_client.query_points.return_value = _make_query_response([mock_point])
 
         with (
             patch(
@@ -107,19 +108,17 @@ class TestHybridSearch:
                 "app.features.butler.rag.retriever._encode_dense",
                 return_value=[0.1] * 384,
             ),
-            patch(
-                "app.features.butler.rag.retriever._encode_sparse",
-                return_value=MagicMock(indices=[1], values=[0.5]),
-            ),
         ):
-            result = hybrid_search("how to craft diamond sword", config=_make_config())
+            result = dense_search("how to craft diamond sword", config=_make_config())
 
         assert len(result) == 1
         assert isinstance(result[0], RetrievedDoc)
         assert result[0].doc_type == "item"
+        # Usa el named vector denso de Qdrant.
+        assert mock_client.query_points.call_args.kwargs.get("using") == "dense"
 
     def test_mechanic_uses_parent_content(self):
-        from app.features.butler.rag.retriever import hybrid_search
+        from app.features.butler.rag.retriever import dense_search
 
         mock_point = _make_qdrant_point(
             "2",
@@ -127,9 +126,8 @@ class TestHybridSearch:
             doc_type="mechanic",
             parent_content="Combat - Attacking: full parent section text...",
         )
-        mock_response = _make_query_response([mock_point])
         mock_client = MagicMock()
-        mock_client.query_points.return_value = mock_response
+        mock_client.query_points.return_value = _make_query_response([mock_point])
 
         with (
             patch(
@@ -140,17 +138,13 @@ class TestHybridSearch:
                 "app.features.butler.rag.retriever._encode_dense",
                 return_value=[0.1] * 384,
             ),
-            patch(
-                "app.features.butler.rag.retriever._encode_sparse",
-                return_value=MagicMock(indices=[1], values=[0.5]),
-            ),
         ):
-            result = hybrid_search("how does combat work", config=_make_config())
+            result = dense_search("how does combat work", config=_make_config())
 
         assert result[0].content == "Combat - Attacking: full parent section text..."
 
     def test_doc_type_filter_passed_to_qdrant(self):
-        from app.features.butler.rag.retriever import hybrid_search
+        from app.features.butler.rag.retriever import dense_search
 
         mock_client = MagicMock()
         mock_client.query_points.return_value = _make_query_response([])
@@ -164,21 +158,14 @@ class TestHybridSearch:
                 "app.features.butler.rag.retriever._encode_dense",
                 return_value=[0.1] * 384,
             ),
-            patch(
-                "app.features.butler.rag.retriever._encode_sparse",
-                return_value=MagicMock(indices=[1], values=[0.5]),
-            ),
         ):
-            hybrid_search("diamond", doc_type_filter="item", config=_make_config())
+            dense_search("diamond", doc_type_filter="item", config=_make_config())
 
         call_kwargs = mock_client.query_points.call_args.kwargs
-        prefetches = call_kwargs.get("prefetch", [])
-        assert len(prefetches) == 2
-        assert prefetches[0].filter is not None
-        assert prefetches[1].filter is not None
+        assert call_kwargs.get("query_filter") is not None
 
     def test_no_filter_when_doc_type_none(self):
-        from app.features.butler.rag.retriever import hybrid_search
+        from app.features.butler.rag.retriever import dense_search
 
         mock_client = MagicMock()
         mock_client.query_points.return_value = _make_query_response([])
@@ -192,20 +179,14 @@ class TestHybridSearch:
                 "app.features.butler.rag.retriever._encode_dense",
                 return_value=[0.1] * 384,
             ),
-            patch(
-                "app.features.butler.rag.retriever._encode_sparse",
-                return_value=MagicMock(indices=[], values=[]),
-            ),
         ):
-            hybrid_search("anything", doc_type_filter=None, config=_make_config())
+            dense_search("anything", doc_type_filter=None, config=_make_config())
 
         call_kwargs = mock_client.query_points.call_args.kwargs
-        prefetches = call_kwargs.get("prefetch", [])
-        assert prefetches[0].filter is None
-        assert prefetches[1].filter is None
+        assert call_kwargs.get("query_filter") is None
 
     def test_empty_collection_returns_empty_list(self):
-        from app.features.butler.rag.retriever import hybrid_search
+        from app.features.butler.rag.retriever import dense_search
 
         mock_client = MagicMock()
         mock_client.query_points.return_value = _make_query_response([])
@@ -219,72 +200,30 @@ class TestHybridSearch:
                 "app.features.butler.rag.retriever._encode_dense",
                 return_value=[0.1] * 384,
             ),
+        ):
+            result = dense_search("anything", config=_make_config())
+
+        assert result == []
+
+    def test_uses_top_k_as_limit(self):
+        from app.features.butler.rag.retriever import dense_search
+
+        mock_client = MagicMock()
+        mock_client.query_points.return_value = _make_query_response([])
+
+        with (
             patch(
-                "app.features.butler.rag.retriever._encode_sparse",
-                return_value=MagicMock(indices=[], values=[]),
+                "app.features.butler.rag.retriever.get_qdrant_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.features.butler.rag.retriever._encode_dense",
+                return_value=[0.1] * 384,
             ),
         ):
-            result = hybrid_search("anything", config=_make_config())
+            dense_search("anything", config=_make_config(top_k=5))
 
-        assert result == []
-
-
-# ── rerank ────────────────────────────────────────────────────────────────────
-
-
-class TestRerank:
-    def _make_docs(self, n: int) -> list[RetrievedDoc]:
-        return [
-            RetrievedDoc(
-                id=str(i),
-                content=f"doc {i}",
-                doc_type="item",
-                score=0.9 - i * 0.1,
-            )
-            for i in range(n)
-        ]
-
-    def test_returns_top_k_docs(self):
-        from app.features.butler.rag.retriever import rerank
-
-        docs = self._make_docs(10)
-        mock_ranker = MagicMock()
-        mock_ranker.rerank.return_value = [
-            {"id": str(i), "score": 1.0 - i * 0.1} for i in range(10)
-        ]
-
-        with patch(
-            "app.features.butler.rag.retriever._get_ranker",
-            return_value=mock_ranker,
-        ):
-            result = rerank("query", docs, top_k=3)
-
-        assert len(result) == 3
-
-    def test_empty_docs_returns_empty(self):
-        from app.features.butler.rag.retriever import rerank
-
-        result = rerank("query", [])
-        assert result == []
-
-    def test_score_updated_from_reranker(self):
-        from app.features.butler.rag.retriever import rerank
-
-        docs = self._make_docs(2)
-        mock_ranker = MagicMock()
-        mock_ranker.rerank.return_value = [
-            {"id": "0", "score": 0.99},
-            {"id": "1", "score": 0.55},
-        ]
-
-        with patch(
-            "app.features.butler.rag.retriever._get_ranker",
-            return_value=mock_ranker,
-        ):
-            result = rerank("query", docs, top_k=2)
-
-        assert abs(result[0].score - 0.99) < 0.001
-        assert abs(result[1].score - 0.55) < 0.001
+        assert mock_client.query_points.call_args.kwargs.get("limit") == 5
 
 
 # ── build_context ─────────────────────────────────────────────────────────────
@@ -338,25 +277,17 @@ class TestGetRetriever:
         retriever = get_retriever()
         assert callable(retriever)
 
-    def test_pipeline_calls_hybrid_search_then_rerank(self):
+    def test_pipeline_calls_dense_search(self):
         from app.features.butler.rag.retriever import get_retriever
 
         mock_doc = RetrievedDoc(id="1", content="test", doc_type="item", score=0.9)
-        reranked_doc = RetrievedDoc(id="1", content="test", doc_type="item", score=0.99)
 
-        with (
-            patch(
-                "app.features.butler.rag.retriever.hybrid_search",
-                return_value=[mock_doc],
-            ) as mock_hs,
-            patch(
-                "app.features.butler.rag.retriever.rerank",
-                return_value=[reranked_doc],
-            ) as mock_rr,
-        ):
+        with patch(
+            "app.features.butler.rag.retriever.dense_search",
+            return_value=[mock_doc],
+        ) as mock_ds:
             retriever = get_retriever()
             result = retriever("diamond sword", doc_type_filter="item")
 
-        mock_hs.assert_called_once_with("diamond sword", doc_type_filter="item")
-        mock_rr.assert_called_once_with("diamond sword", [mock_doc])
-        assert result == [reranked_doc]
+        mock_ds.assert_called_once_with("diamond sword", doc_type_filter="item")
+        assert result == [mock_doc]

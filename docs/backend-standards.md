@@ -141,22 +141,21 @@ app/features/butler/rag/
 ├── __init__.py       # exporta get_retriever()
 ├── client.py         # QdrantClient singleton (settings.qdrant_url)
 ├── schemas.py        # RetrievedDoc, RetrieverConfig
-└── retriever.py      # hybrid_search + rerank + build_context + get_retriever
+└── retriever.py      # dense_search + build_context + get_retriever
 ```
 
-### Pipeline de recuperación
+### Pipeline de recuperación (dense-only)
 
 ```
-Query (ES) → _encode_dense + _encode_sparse
-           → Qdrant hybrid search (prefetch dense + sparse, RRF fusion)
-           → FlashRank reranking (cross-encoder, top_k docs)
+Query (ES) → _encode_dense (embeddings multilingües)
+           → Qdrant dense search (named vector "dense", filtro por doc_type, top_k)
            → build_context() → system prompt del LLM
 ```
 
-- **Embeddings**: `paraphrase-multilingual-MiniLM-L12-v2` (multilingual, queries ES / corpus EN)
-- **Sparse**: BM42 via fastembed para keyword matching exacto (nombres de ítems)
-- **Reranker**: FlashRank ms-marco-MiniLM (local, sin API key)
-- **Parent Document Retrieval**: chunks de wiki indexan `parent_content` en payload → el LLM recibe la sección completa
+- **Embeddings**: `paraphrase-multilingual-MiniLM-L12-v2` (multilingual, cross-lingual: queries ES / corpus EN). El modelo denso es **cross-lingual**, así que una pregunta en español recupera correctamente el corpus en inglés.
+- **Parent Document Retrieval**: chunks de wiki indexan `parent_content` en payload → el LLM recibe la sección completa.
+
+> **Por qué dense-only** (ver `openspec/changes/fix-rag-multilingual-retrieval`): el corpus es 100% inglés y los usuarios preguntan en español. La rama **sparse BM42** y el **reranker FlashRank** son léxicos solo-inglés: para consultas en español el sparse devuelve ruido y los rerankers de FlashRank no reordenan ES→EN (el "multilingüe" `ms-marco-MultiBERT-L-12` da scores ~0). Ambas etapas degradaban el ranking del denso. El denso multilingüe por sí solo devuelve el documento correcto en top-1 en ES y EN. La colección Qdrant conserva el named vector `sparse` (lo escribe `scripts/ingest.py`), pero **no se usa en consulta**.
 
 ### Metadata filtering
 

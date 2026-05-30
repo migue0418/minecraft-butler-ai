@@ -70,6 +70,7 @@ Docker compose final: `postgres` + `backend` + `qdrant` + `redis`
 - Metadata filtering por `doc_type` (item/mob/mechanic) via `classify_intent`
 - Nodo `retrieve_context` en el grafo entre `classify_intent` y `answer_question`
 - 22 tests TDD nuevos (54 total en verde)
+- **Fix posterior (`fix-rag-multilingual-retrieval`)**: la recuperación en consulta se simplificó a **dense-only**. La rama sparse BM42 y el reranker FlashRank son léxicos solo-inglés y degradaban las preguntas en español; el denso multilingüe (cross-lingual) ya devuelve el documento correcto en top-1. La ingesta mantiene el sparse en la colección, pero no se usa al consultar.
 
 ---
 

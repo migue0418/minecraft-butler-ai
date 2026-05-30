@@ -1,40 +1,34 @@
 """Módulo de recuperación RAG para el butler.
 
-Pipeline:
-  1. hybrid_search(): consulta Qdrant con prefetch dense + sparse y fusión RRF.
-  2. rerank(): reordena con FlashRank para mayor precisión.
-  3. build_context(): formatea los docs como bloque de texto para el prompt.
+Pipeline (dense-only):
+  1. dense_search(): búsqueda vectorial densa en Qdrant con el modelo de
+     embeddings multilingüe. El modelo es cross-lingual, así que las consultas en
+     español recuperan correctamente el corpus en inglés sin etapas léxicas.
+  2. build_context(): formatea los docs como bloque de texto para el prompt.
+
+Decisión (ver openspec/changes/fix-rag-multilingual-retrieval): se descartó la
+rama sparse BM42 y el reranker FlashRank porque son léxicos solo-inglés y
+degradaban el ranking en consultas en español (sparse devuelve ruido; los
+rerankers de FlashRank no reordenan ES→EN). El denso multilingüe basta y es
+superior en ES y EN.
 
 Parent Document Retrieval:
   Los chunks de mecánicas wiki almacenan el campo `parent_content` en su payload.
-  hybrid_search() lo extrae y lo usa como `content` en lugar del chunk.
+  dense_search() lo extrae y lo usa como `content` en lugar del chunk.
 """
 
 from __future__ import annotations
 
-from flashrank import Ranker, RerankRequest
 from qdrant_client.http.models import (
-    FusionQuery,
-    Prefetch,
-    SparseVector,
+    FieldCondition,
+    Filter,
+    MatchValue,
 )
 
 from app.core.settings import get_settings
 from app.features.butler.llm.factory import get_embedding_model
 from app.features.butler.rag.client import get_qdrant_client
 from app.features.butler.rag.schemas import RetrievedDoc, RetrieverConfig
-
-_SPARSE_MODEL = "Qdrant/bm42-all-minilm-l6-v2-attentions"
-
-_ranker: Ranker | None = None
-_sparse_model = None
-
-
-def _get_ranker() -> Ranker:
-    global _ranker
-    if _ranker is None:
-        _ranker = Ranker()
-    return _ranker
 
 
 def _get_config() -> RetrieverConfig:
@@ -54,55 +48,37 @@ def _encode_dense(text: str) -> list[float]:
     return model.embed_query(text)
 
 
-def _encode_sparse(text: str) -> SparseVector:
-    global _sparse_model
-    from fastembed import SparseTextEmbedding
-
-    if _sparse_model is None:
-        _sparse_model = SparseTextEmbedding(model_name=_SPARSE_MODEL)
-    result = list(_sparse_model.embed([text]))[0]
-    return SparseVector(indices=result.indices.tolist(), values=result.values.tolist())
-
-
-def hybrid_search(
+def dense_search(
     query: str,
     doc_type_filter: str | None = None,
     config: RetrieverConfig | None = None,
 ) -> list[RetrievedDoc]:
+    """Recupera los top-K documentos por similitud vectorial densa.
+
+    El vector de consulta se genera con el modelo de embeddings multilingüe
+    (cross-lingual), de modo que una pregunta en español recupera documentos del
+    corpus en inglés. Aplica un filtro opcional por `doc_type` y expone
+    `parent_content` para los documentos de mecánicas wiki.
+    """
     cfg = config or _get_config()
     client = get_qdrant_client()
 
     dense_vector = _encode_dense(query)
-    sparse_vector = _encode_sparse(query)
 
     qdrant_filter = None
     if doc_type_filter and doc_type_filter != "none":
-        from qdrant_client.http.models import FieldCondition, Filter, MatchValue
-
         qdrant_filter = Filter(
             must=[
                 FieldCondition(key="doc_type", match=MatchValue(value=doc_type_filter)),
             ],
         )
 
-    prefetch_dense = Prefetch(
-        query=dense_vector,
-        using="dense",
-        filter=qdrant_filter,
-        limit=cfg.prefetch_limit,
-    )
-    prefetch_sparse = Prefetch(
-        query=sparse_vector,
-        using="sparse",
-        filter=qdrant_filter,
-        limit=cfg.prefetch_limit,
-    )
-
     results = client.query_points(
         collection_name=cfg.collection,
-        prefetch=[prefetch_dense, prefetch_sparse],
-        query=FusionQuery(fusion="rrf"),
-        limit=cfg.prefetch_limit,
+        query=dense_vector,
+        using="dense",
+        query_filter=qdrant_filter,
+        limit=cfg.top_k,
         with_payload=True,
     )
 
@@ -130,31 +106,6 @@ def hybrid_search(
     return docs
 
 
-def rerank(
-    query: str,
-    docs: list[RetrievedDoc],
-    top_k: int | None = None,
-) -> list[RetrievedDoc]:
-    if not docs:
-        return []
-
-    cfg = _get_config()
-    k = top_k if top_k is not None else cfg.top_k
-    ranker = _get_ranker()
-
-    passages = [{"id": doc.id, "text": doc.content} for doc in docs]
-    request = RerankRequest(query=query, passages=passages)
-    reranked = ranker.rerank(request)
-
-    doc_by_id = {doc.id: doc for doc in docs}
-    result: list[RetrievedDoc] = []
-    for entry in reranked[:k]:
-        original = doc_by_id.get(str(entry["id"]))
-        if original:
-            result.append(original.model_copy(update={"score": float(entry["score"])}))
-    return result
-
-
 def build_context(docs: list[RetrievedDoc]) -> str:
     if not docs:
         return ""
@@ -166,7 +117,6 @@ def build_context(docs: list[RetrievedDoc]) -> str:
 
 def get_retriever():
     def _retrieve(query: str, doc_type_filter: str | None = None) -> list[RetrievedDoc]:
-        docs = hybrid_search(query, doc_type_filter=doc_type_filter)
-        return rerank(query, docs)
+        return dense_search(query, doc_type_filter=doc_type_filter)
 
     return _retrieve
