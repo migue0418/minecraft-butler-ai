@@ -1,0 +1,57 @@
+# Configuración de proyecto para OpenSpec
+# Docs: https://github.com/Fission-AI/OpenSpec
+# `context` se inyecta en TODOS los artefactos; `rules` solo en el artefacto indicado.
+schema: spec-driven
+
+context: |
+  # MinecraftButlerAI Backend
+
+  ## Backend (raíz del repositorio)
+  - Python >= 3.12. FastAPI con SQLAlchemy async + asyncpg, Alembic, Pydantic Settings,
+    JWT (pyjwt), pwdlib[argon2] y SlowAPI. Gestor de dependencias: **uv** (no pip).
+  - Arquitectura por slice en `app/features/<feature>/`:
+    - `router.py`: endpoints HTTP delgados (solo orquestan, sin lógica de negocio).
+    - `schemas.py`: modelos Pydantic de request/response.
+    - `service.py`: casos de uso y reglas de negocio (clase `XxxService` + factory
+      `get_xxx_service(session=Depends(get_session))`). Hace `await session.commit()`.
+    - `repository.py`: acceso a datos con `AsyncSession` (queries `select(...)`,
+      `selectinload` para relaciones). Sin lógica de negocio.
+    - `models.py`: modelos SQLAlchemy (heredan de `app.core.database.Base`), si aplica.
+  - Endpoints SIEMPRE bajo `/api/...`. Routers nuevos se registran en `app/main.py`.
+  - Modelos SQLAlchemy nuevos se importan en `app/core/database.py::import_model_modules`.
+  - Cambios de schema de datos SIEMPRE con migración Alembic en `alembic/versions/`.
+  - Autenticación/roles vía dependencias `app.features.auth.dependencies`
+    (`get_authenticated_user`, `require_roles("admin")`).
+  - Rate limiting con SlowAPI (`app/core/limiter.py`); usar `@limiter.limit("N/period")`
+    en routers sensibles.
+  - Tests con pytest en `tests/` (httpx para la API). PROHIBIDO SQLite en tests:
+    usar PostgreSQL.
+
+  ## Sin frontend
+  - Este proyecto es exclusivamente backend. No hay React, Vite ni Caddy.
+  - No existe carpeta `frontend/`. Las referencias a SPA o assets estáticos no aplican.
+
+  ## Convenciones generales
+  - Mensajes de usuario y `detail` de errores en **español**; identificadores de código en inglés.
+  - Estándares detallados: `docs/base-standards.md`, `docs/backend-standards.md`.
+    Verificación: `docs/verification-guide.md`.
+
+rules:
+  proposal:
+    - Indica qué slices de backend se ven afectados.
+    - Si el cambio toca el modelo de datos, advierte de que requerirá migración Alembic.
+  specs:
+    - Usa formato Given/When/Then en los escenarios.
+    - Cubre casos de error (validación 422, 401/403, 404, 409) además del happy path.
+  design:
+    - Describe el cambio capa por capa en backend (router → service → repository → models).
+    - Lista migraciones Alembic necesarias y modelos a registrar en `import_model_modules`.
+    - "OBLIGATORIO: antes de /opsx:apply, genera el plan técnico a nivel de archivos con el agente backend-developer en `.claude/doc/<change>/backend.md`. No es opcional."
+  tasks:
+    - "Antes de escribir tasks.md, lee `.claude/rules/openspec-tasks-mandatory-steps.md`."
+    - "Paso 0 (obligatorio, el primero): crear rama `feature/<change-name>`."
+    - "Aplica TDD donde tenga sentido; los tests de backend usan pytest (NUNCA SQLite)."
+    - "Obligatorio: ejecutar `uv run pytest -q` y verificar el estado de la BD."
+    - "Obligatorio: pruebas manuales de endpoints con curl ejecutadas por el agente (no el usuario), restaurando el estado de la BD."
+    - "Obligatorio: actualizar documentación técnica en `docs/` si cambian contratos o arquitectura."
+    - "Paso final: abrir el PR con `gh` usando la skill write-pr-report."
