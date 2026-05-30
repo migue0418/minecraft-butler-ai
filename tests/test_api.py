@@ -12,6 +12,7 @@ from sqlalchemy.engine import URL, make_url
 
 from app.core.database import close_database
 from app.core.datetime import utcnow
+from app.core.limiter import limiter
 from app.core.settings import get_settings
 from app.features.auth.security import hash_password
 from app.main import create_app
@@ -80,17 +81,27 @@ async def _connect_to_database(database_url: str) -> asyncpg.Connection:
 
 
 async def _seed_legacy_schema(database_url: str) -> None:
+    """Simulates a pre-Alembic database that's already at revision 0001 state.
+
+    Creates the full schema that 0001 produces (without the lockout fields added in 0002),
+    stamps alembic_version to '0001', and inserts an admin user without roles.
+    On startup, migration 0002 runs (adding failed_login_attempts/locked_until) and the
+    lifespan seed assigns roles to the existing admin user.
+    """
     connection = await _connect_to_database(database_url)
     try:
         await connection.execute(
             """
             CREATE TABLE users (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(50) NOT NULL UNIQUE,
+                id SERIAL NOT NULL,
+                username VARCHAR(50) NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
-                is_active BOOLEAN NOT NULL,
+                full_name VARCHAR(255),
+                email VARCHAR(255),
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP NOT NULL,
-                updated_at TIMESTAMP NOT NULL
+                updated_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (id)
             )
             """,
         )
@@ -99,15 +110,41 @@ async def _seed_legacy_schema(database_url: str) -> None:
         )
         await connection.execute(
             """
+            CREATE TABLE roles (
+                id SERIAL NOT NULL,
+                name VARCHAR(50) NOT NULL,
+                description VARCHAR(255) NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (id)
+            )
+            """,
+        )
+        await connection.execute("CREATE UNIQUE INDEX ix_roles_name ON roles (name)")
+        await connection.execute(
+            """
+            CREATE TABLE user_roles (
+                user_id INTEGER NOT NULL,
+                role_id INTEGER NOT NULL,
+                PRIMARY KEY (user_id, role_id),
+                CONSTRAINT uq_user_roles_user_id_role_id UNIQUE (user_id, role_id),
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE
+            )
+            """,
+        )
+        await connection.execute(
+            """
             CREATE TABLE auth_refresh_tokens (
-                id SERIAL PRIMARY KEY,
+                id SERIAL NOT NULL,
                 user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-                token_hash VARCHAR(64) NOT NULL UNIQUE,
+                token_hash VARCHAR(64) NOT NULL,
                 created_at TIMESTAMP NOT NULL,
                 expires_at TIMESTAMP NOT NULL,
                 revoked_at TIMESTAMP NULL,
                 user_agent VARCHAR(255) NULL,
-                remember_me BOOLEAN NOT NULL
+                remember_me BOOLEAN NOT NULL,
+                PRIMARY KEY (id)
             )
             """,
         )
@@ -116,6 +153,17 @@ async def _seed_legacy_schema(database_url: str) -> None:
             CREATE UNIQUE INDEX ix_auth_refresh_tokens_token_hash
             ON auth_refresh_tokens (token_hash)
             """,
+        )
+        await connection.execute(
+            """
+            CREATE TABLE alembic_version (
+                version_num VARCHAR(32) NOT NULL,
+                CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+            )
+            """,
+        )
+        await connection.execute(
+            "INSERT INTO alembic_version (version_num) VALUES ('0001')",
         )
         now = utcnow()
         await connection.execute(
@@ -158,6 +206,7 @@ def build_client(
         asyncio.run(initializer(database_url))
 
     try:
+        limiter._storage.reset()
         app = create_app()
         with TestClient(app) as client:
             yield client

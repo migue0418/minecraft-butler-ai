@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Path, Response, status
 
 from app.features.auth.dependencies import get_authenticated_user, require_roles
 from app.features.users.schemas import (
@@ -24,7 +24,7 @@ async def list_users(
 
 @router.get("/{user_id}", response_model=UserDetailResponse)
 async def get_user(
-    user_id: int,
+    user_id: int = Path(..., gt=0),
     _: object = Depends(require_roles("admin")),
     service: UsersService = Depends(get_users_service),
 ) -> UserDetailResponse:
@@ -46,8 +46,8 @@ async def create_user(
 
 @router.put("/{user_id}", response_model=UserDetailResponse)
 async def update_user(
-    user_id: int,
-    payload: UpdateUserRequest,
+    user_id: int = Path(..., gt=0),
+    payload: UpdateUserRequest = ...,
     _: object = Depends(require_roles("admin")),
     service: UsersService = Depends(get_users_service),
 ) -> UserDetailResponse:
@@ -56,7 +56,7 @@ async def update_user(
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
-    user_id: int,
+    user_id: int = Path(..., gt=0),
     _: object = Depends(require_roles("admin")),
     service: UsersService = Depends(get_users_service),
 ) -> Response:
@@ -76,8 +76,8 @@ async def change_own_password(
 
 @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 async def reset_password(
-    user_id: int,
-    payload: AdminResetPasswordRequest,
+    user_id: int = Path(..., gt=0),
+    payload: AdminResetPasswordRequest = ...,
     _: object = Depends(require_roles("admin")),
     service: UsersService = Depends(get_users_service),
 ) -> Response:

@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.lifespan import lifespan
+from app.core.limiter import limiter
 from app.core.settings import get_settings
 from app.features.auth.router import router as auth_router
 from app.features.butler.router import router as butler_router
@@ -21,12 +23,13 @@ def create_app() -> FastAPI:
         redoc_url="/api/redocumentation",
     )
 
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     if not settings.is_production:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=[
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
                 "http://localhost:8000",
                 "http://127.0.0.1:8000",
             ],
@@ -34,10 +37,6 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
-
-    assets_dir = settings.frontend_dist_dir / "assets"
-    if assets_dir.exists():
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
     app.include_router(health_router)
     app.include_router(auth_router)
