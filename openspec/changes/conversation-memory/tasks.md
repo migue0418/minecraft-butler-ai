@@ -33,4 +33,4 @@
 
 ## 6. Cierre (OBLIGATORIO)
 - [x] 6.1 Actualizar `docs/` (backend-standards: sección memoria; roadmap: conversation-memory a completados)
-- [ ] 6.2 PR con `gh` usando la skill `write-pr-report`
+- [x] 6.2 PR con `gh` usando la skill `write-pr-report` — PR #5
