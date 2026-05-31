@@ -211,9 +211,13 @@ def build_client(
     from langgraph.checkpoint.memory import MemorySaver
 
     from app.features.butler.graph import graph as _graph_module
+    from app.features.butler.stt import service as _stt_module
 
     test_graph = _graph_module.compile_graph(checkpointer=MemorySaver())
     _graph_module._compiled_graph = test_graph
+
+    # Evitar que el lifespan cargue el modelo Whisper real en tests.
+    _stt_module._whisper_model = MagicMock()
 
     try:
         limiter._storage.reset()
@@ -224,6 +228,7 @@ def build_client(
         asyncio.run(close_database())
         get_settings.cache_clear()
         _graph_module._compiled_graph = None  # reset singleton para siguientes tests
+        _stt_module._whisper_model = None  # reset singleton para siguientes tests
         asyncio.run(_drop_test_database(admin_url, database_name))
 
 
@@ -1104,3 +1109,163 @@ async def test_multi_turn_memory_with_memory_saver() -> None:
     assert len(state2["messages"]) >= 4
     assert isinstance(state2["messages"][0], HumanMessage)
     assert isinstance(state2["messages"][-1], AIMessage)
+
+
+# ── voice-stt-input: input_mode y endpoint /ask-voice ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_butler_service_text_input_mode_sets_metadata() -> None:
+    """run() con input_mode='text' crea HumanMessage con metadata input_mode=text."""
+    from app.features.butler.graph.graph import reset_compiled_graph
+
+    reset_compiled_graph()
+    mock_state = {
+        "message": "test",
+        "intent": "speak",
+        "doc_type": "none",
+        "retrieved_docs": [],
+        "messages": [],
+        "input_mode": "text",
+        "actions": [{"type": "speak", "message": "ok"}],
+    }
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=mock_state)
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        from app.features.butler.service import ButlerService
+
+        await ButlerService().run("test", input_mode="text")
+
+    _, call_kwargs = mock_graph.ainvoke.call_args
+    state_input = mock_graph.ainvoke.call_args[0][0]
+    human_msg = state_input["messages"][0]
+    assert human_msg.metadata.get("input_mode") == "text"
+    assert state_input["input_mode"] == "text"
+
+
+@pytest.mark.asyncio
+async def test_butler_service_voice_input_mode_sets_metadata() -> None:
+    """run() con input_mode='voice' crea HumanMessage con metadata input_mode=voice."""
+    from app.features.butler.graph.graph import reset_compiled_graph
+
+    reset_compiled_graph()
+    mock_state = {
+        "message": "test",
+        "intent": "speak",
+        "doc_type": "none",
+        "retrieved_docs": [],
+        "messages": [],
+        "input_mode": "voice",
+        "actions": [{"type": "speak", "message": "ok"}],
+    }
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=mock_state)
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        from app.features.butler.service import ButlerService
+
+        await ButlerService().run("test transcrito", input_mode="voice")
+
+    state_input = mock_graph.ainvoke.call_args[0][0]
+    human_msg = state_input["messages"][0]
+    assert human_msg.metadata.get("input_mode") == "voice"
+    assert state_input["input_mode"] == "voice"
+
+
+def test_ask_voice_requires_auth(client: TestClient) -> None:
+    """POST /api/butler/ask-voice sin token devuelve 401."""
+    response = client.post(
+        "/api/butler/ask-voice",
+        files={"audio": ("test.wav", b"fake", "audio/wav")},
+    )
+    assert response.status_code == 401
+
+
+def test_ask_voice_with_valid_audio_returns_actions(client: TestClient) -> None:
+    """POST /api/butler/ask-voice con audio válido (mockeado) devuelve 200."""
+    tokens = login(client)
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "message": "como fabrico una espada",
+            "intent": "question",
+            "doc_type": "item",
+            "retrieved_docs": [],
+            "messages": [],
+            "input_mode": "voice",
+            "actions": _SPEAK_RESPONSE,
+        },
+    )
+    with (
+        patch(
+            "app.features.butler.service.get_compiled_graph",
+            new=AsyncMock(return_value=mock_graph),
+        ),
+        patch(
+            "app.features.butler.router.transcribe_audio",
+            return_value="como fabrico una espada",
+        ),
+    ):
+        response = client.post(
+            "/api/butler/ask-voice",
+            files={"audio": ("test.wav", b"fake_wav_bytes", "audio/wav")},
+            headers=auth_headers(tokens["access_token"]),
+        )
+
+    assert response.status_code == 200
+    actions = response.json()
+    assert isinstance(actions, list)
+    assert actions[0]["type"] == "speak"
+
+
+def test_ask_voice_empty_audio_returns_422(client: TestClient) -> None:
+    """POST /api/butler/ask-voice con audio vacío devuelve 422."""
+    tokens = login(client)
+    response = client.post(
+        "/api/butler/ask-voice",
+        files={"audio": ("empty.wav", b"", "audio/wav")},
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code == 422
+
+
+def test_ask_voice_passes_session_id(client: TestClient) -> None:
+    """session_id en ask-voice se propaga al grafo como thread_id."""
+    tokens = login(client)
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "message": "test",
+            "intent": "speak",
+            "doc_type": "none",
+            "retrieved_docs": [],
+            "messages": [],
+            "input_mode": "voice",
+            "actions": _SPEAK_RESPONSE,
+        },
+    )
+    with (
+        patch(
+            "app.features.butler.service.get_compiled_graph",
+            new=AsyncMock(return_value=mock_graph),
+        ),
+        patch(
+            "app.features.butler.router.transcribe_audio",
+            return_value="hola",
+        ),
+    ):
+        client.post(
+            "/api/butler/ask-voice",
+            data={"session_id": "player-voice-session"},
+            files={"audio": ("test.wav", b"fake", "audio/wav")},
+            headers=auth_headers(tokens["access_token"]),
+        )
+
+    _, call_kwargs = mock_graph.ainvoke.call_args
+    thread_id = call_kwargs.get("config", {}).get("configurable", {}).get("thread_id")
+    assert thread_id == "player-voice-session"

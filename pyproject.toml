@@ -26,6 +26,7 @@ dependencies = [
     "flashrank>=0.2.9",
     "langchain-qdrant>=0.2.0",
     "langgraph-checkpoint-redis>=0.4.1",
+    "faster-whisper>=1.2.1",
 ]
 
 [dependency-groups]
