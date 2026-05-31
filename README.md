@@ -1,7 +1,7 @@
-# MinecraftButlerAI — Backend
+# MinecraftButlerAI: Backend
 
-> Alfred, your AI butler inside Minecraft. Speak or type a command, and he manages your chests,
-> moves to positions, responds in chat — all driven by a LangGraph agent with RAG and conversation memory.
+> Alfred, your AI butler inside Minecraft. Speak or type a command and he manages your chests,
+> moves to positions, responds in chat, driven by a LangGraph agent with RAG and conversation memory.
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
@@ -39,16 +39,11 @@ graph LR
     RAG --- Qdrant[(Qdrant)]
 ```
 
-The **backend is the brain**: the Minecraft mod ([minecraft-butler-ai-mod](https://github.com/migue0418/minecraft-butler-ai-mod)) acts as a thin HTTP client — it sends the player's message and executes the structured actions Alfred decides to take.
+The backend is the brain: the Minecraft mod ([minecraft-butler-ai-mod](https://github.com/migue0418/minecraft-butler-ai-mod)) acts as a thin HTTP client that sends player messages and executes the structured actions Alfred decides to take.
 
-## What makes this interesting
+## Highlights
 
-- **LangGraph agent** — multi-step reasoning graph: the agent plans, retrieves context, and selects the right action
-- **RAG pipeline** — ~1,665 Minecraft Wiki documents (items, mobs, mechanics) indexed in Qdrant with hybrid search (dense + sparse) and FlashRank reranker
-- **Voice input (STT)** — `faster-whisper` transcribes audio directly, enabling hands-free in-game commands
-- **Conversation memory** — Redis checkpointer via LangGraph keeps multi-turn context across requests
-- **LangSmith tracing** — full observability over every agent step, token usage, and retrieval quality
-- **Auth system** — JWT access/refresh tokens, role-based access control, account lockout, argon2 password hashing
+The agent uses LangGraph to orchestrate a multi-step reasoning graph (plan, retrieve, act). The RAG pipeline indexes ~1,665 Minecraft Wiki documents (items, mobs, mechanics) in Qdrant with hybrid search and a FlashRank reranker. Voice input goes through faster-whisper for STT. Conversation memory is handled by a Redis checkpointer wired into LangGraph, so Alfred remembers context across requests. Every agent step is traced in LangSmith.
 
 ## Stack
 
@@ -114,7 +109,7 @@ app/
     ├── users/     # account management
     ├── roles/     # role-based access control
     ├── health/    # health check
-    └── butler/    # LangGraph agent → Minecraft actions
+    └── butler/    # LangGraph agent -> Minecraft actions
 ```
 
 Slice architecture: each feature owns its `router.py`, `schemas.py`, `service.py`, `repository.py`, and `models.py`.
@@ -123,14 +118,14 @@ Slice architecture: each feature owns its `router.py`, `schemas.py`, `service.py
 
 | Variable | Description |
 |---|---|
-| `ANTHROPIC_API_KEY` | **Required** — Claude API key |
-| `SECRET_KEY` | JWT signing key (≥ 32 chars in production) |
+| `ANTHROPIC_API_KEY` | Required - Claude API key |
+| `SECRET_KEY` | JWT signing key (32+ chars in production) |
 | `DATABASE_URL` | PostgreSQL connection string |
-| `LANGSMITH_API_KEY` | Optional — LangSmith tracing |
+| `LANGSMITH_API_KEY` | Optional - LangSmith tracing |
 | `LANGCHAIN_TRACING_V2` | `true` to enable LangSmith |
 
 See `.example.env` for the full list.
 
 ## Companion repo
 
-- [minecraft-butler-ai-mod](https://github.com/migue0418/minecraft-butler-ai-mod) — Fabric mod (Java) — the in-game client that talks to this API
+[minecraft-butler-ai-mod](https://github.com/migue0418/minecraft-butler-ai-mod) - Fabric mod (Java), the in-game client that talks to this API.
