@@ -93,9 +93,15 @@ async def answer_question(state: ButlerState) -> dict:
 
 
 async def speak_action(state: ButlerState) -> dict:
+    llm = get_llm("responder")
+    history = state.get("messages", [])
+    response = await llm.ainvoke(
+        [{"role": "system", "content": _MINECRAFT_SYSTEM_PROMPT}, *history],
+    )
+    ai_msg = AIMessage(content=str(response.content))
     return {
-        "messages": [AIMessage(content=state["message"])],
-        "actions": [{"type": "speak", "message": state["message"]}],
+        "messages": [ai_msg],
+        "actions": [{"type": "speak", "message": str(response.content)}],
     }
 
 
