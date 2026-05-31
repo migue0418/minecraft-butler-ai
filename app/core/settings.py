@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     qdrant_prefetch_limit: int = 20
     redis_url: str = "redis://localhost:6379"
     redis_session_ttl_seconds: int = 86400
+    whisper_model: str = "base"
+    whisper_device: str = "cpu"
     langsmith_api_key: str = ""
     langsmith_project: str = "minecraftbutlerai"
     langsmith_endpoint: str = ""

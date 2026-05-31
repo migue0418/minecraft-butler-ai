@@ -1,128 +1,136 @@
 # MinecraftButlerAI — Backend
 
-Backend FastAPI para un agente LLM que actúa como mayordomo en Minecraft. Recibe peticiones en lenguaje natural (texto o voz), decide qué acción ejecutar y la delega al cliente Java que controla el juego.
+> Alfred, your AI butler inside Minecraft. Speak or type a command, and he manages your chests,
+> moves to positions, responds in chat — all driven by a LangGraph agent with RAG and conversation memory.
 
-## Qué hace este proyecto
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-agent-FF6B35?logo=langchain&logoColor=white)
+![Qdrant](https://img.shields.io/badge/Qdrant-RAG-DC143C?logo=qdrant&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-memory-DC382D?logo=redis&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)
+![LangSmith](https://img.shields.io/badge/LangSmith-tracing-1C3C3C?logo=langchain&logoColor=white)
 
-El backend es el **cerebro del agente**: no ejecuta acciones en Minecraft directamente, sino que:
+## Demo
 
-1. Recibe la petición del jugador (texto o, eventualmente, audio via STT)
-2. Procesa la intención con un grafo **LangGraph** (orquestación de pasos: planificación, retrieval, ejecución)
-3. Decide si necesita consultar una base de conocimiento (**RAG**) para dar contexto al LLM
-4. Selecciona la acción final (`move_to_position`, `speak`, `craft`, …)
-5. Devuelve la acción estructurada al cliente Java que la ejecuta en el juego
-6. Registra trazas en **LangSmith** para observabilidad y depuración
+> 📹 Demo video coming soon.
+
+## Architecture
+
+```mermaid
+graph LR
+    subgraph Mod["🎮 Minecraft Mod · Java / Fabric"]
+        Player -->|"/butler ask ..."| Cmd[ButlerCommand]
+        Cmd -->|execute| World["🌍 World\nchests · chat · movement"]
+    end
+
+    subgraph Backend["⚡ Backend · FastAPI + Docker"]
+        API["REST API\n/ask  /ask-voice"] --> LG["LangGraph\nAgent"]
+        LG --> RAG["RAG\nQdrant · hybrid search · FlashRank"]
+        API --> STT["STT\nfaster-whisper"]
+        LG <-->|multi-turn| Mem["Memory\nRedis"]
+        API --> Auth["Auth\nJWT · roles · lockout"]
+    end
+
+    Cmd -->|"HTTP + JWT"| API
+    API -->|"ButlerAction[ ]"| Cmd
+    LG -->|traces| LangSmith[LangSmith]
+    Auth --- DB[(PostgreSQL)]
+    RAG --- Qdrant[(Qdrant)]
+```
+
+The **backend is the brain**: the Minecraft mod ([minecraft-butler-ai-mod](https://github.com/migue0418/minecraft-butler-ai-mod)) acts as a thin HTTP client — it sends the player's message and executes the structured actions Alfred decides to take.
+
+## What makes this interesting
+
+- **LangGraph agent** — multi-step reasoning graph: the agent plans, retrieves context, and selects the right action
+- **RAG pipeline** — ~1,665 Minecraft Wiki documents (items, mobs, mechanics) indexed in Qdrant with hybrid search (dense + sparse) and FlashRank reranker
+- **Voice input (STT)** — `faster-whisper` transcribes audio directly, enabling hands-free in-game commands
+- **Conversation memory** — Redis checkpointer via LangGraph keeps multi-turn context across requests
+- **LangSmith tracing** — full observability over every agent step, token usage, and retrieval quality
+- **Auth system** — JWT access/refresh tokens, role-based access control, account lockout, argon2 password hashing
 
 ## Stack
 
-| Capa | Tecnología |
+| Layer | Tech |
 |---|---|
-| API | FastAPI + SQLAlchemy async + Alembic + PostgreSQL |
-| Autenticación | JWT (access 15 min) + refresh token (cookie HTTP-only) |
-| Agente LLM | LangChain + LangGraph |
-| Retrieval | RAG — Qdrant + hybrid search + FlashRank reranker |
-| Voz | STT (pendiente de implementar) |
-| Observabilidad | LangSmith |
-| Seguridad | SlowAPI (rate limiting), account lockout, argon2 |
-| Gestor deps | uv |
+| API | FastAPI · SQLAlchemy async · Alembic · PostgreSQL |
+| Auth | JWT (15 min) + refresh token (HTTP-only cookie) · argon2 · SlowAPI |
+| Agent | LangGraph · LangChain · Claude (Anthropic) |
+| Retrieval | Qdrant · hybrid search · FlashRank reranker |
+| Voice | faster-whisper (STT) |
+| Memory | Redis (LangGraph checkpointer) |
+| Observability | LangSmith |
+| Packaging | uv · Docker Compose |
 
-## Inicio rápido (Docker)
+## Quick start (Docker)
 
-```powershell
-cp .example.env .env   # rellenar ANTHROPIC_API_KEY y otras vars
+```bash
+cp .example.env .env   # fill in ANTHROPIC_API_KEY and other vars
 docker compose up --build
 ```
 
-API disponible en `http://localhost:8000/api/documentation`
-Credenciales por defecto: `admin` / `ChangeMe123!`
+API docs at `http://localhost:8000/api/documentation`
+Default credentials: `admin` / `ChangeMe123!`
 
-### Ingesta del conocimiento Minecraft (RAG)
+### Ingest Minecraft knowledge (RAG)
 
-Tras levantar los servicios, ejecuta una vez el script de ingesta para poblar Qdrant:
+Run once after the services are up to populate Qdrant:
 
-```powershell
+```bash
 uv run python scripts/ingest.py
 ```
 
-Descarga ~1665 documentos (ítems, mobs y mecánicas de la Minecraft Wiki) y los indexa en Qdrant.
-Usa `--force` para reindexar si cambias el modelo de embeddings.
+Downloads ~1,665 documents from the Minecraft Wiki and indexes them into Qdrant.
+Use `--force` to re-index if you change the embedding model.
 
-## Desarrollo local
+## Local development
 
-Requiere [uv](https://docs.astral.sh/uv/getting-started/installation/), PostgreSQL y Qdrant.
+Requires [uv](https://docs.astral.sh/uv/), PostgreSQL, and Qdrant.
 
-```powershell
-# Levantar Qdrant
-docker compose up -d qdrant
+```bash
+docker compose up -d qdrant redis db
 
-# Instalar dependencias e iniciar backend
 uv sync
-uv run python scripts/ingest.py   # solo la primera vez
+uv run python scripts/ingest.py   # first time only
 uv run uvicorn app.main:app --reload
 ```
 
 ## Tests
 
-```powershell
+```bash
 uv run pytest -q
 ```
 
-Requiere PostgreSQL accesible en `127.0.0.1:5432`. Ajusta `TEST_DATABASE_ADMIN_URL` en `.env` si es necesario.
+Requires PostgreSQL at `127.0.0.1:5432`. Adjust `TEST_DATABASE_ADMIN_URL` in `.env` if needed.
 
-## Estructura
+## Project structure
 
 ```
 app/
-├── core/          # settings, DB, lifespan, limiter, migraciones
+├── core/          # settings, DB, lifespan, rate limiter, migrations
 └── features/
-    ├── auth/      # JWT, refresh tokens, lockout, sesiones
-    ├── users/     # gestión de cuentas
-    ├── roles/     # gestión de roles (admin, user, custom)
+    ├── auth/      # JWT, refresh tokens, lockout, sessions
+    ├── users/     # account management
+    ├── roles/     # role-based access control
     ├── health/    # health check
-    └── butler/    # agente LLM → acción Minecraft (LangGraph)
+    └── butler/    # LangGraph agent → Minecraft actions
 ```
 
-## Añadir nuevas features
+Slice architecture: each feature owns its `router.py`, `schemas.py`, `service.py`, `repository.py`, and `models.py`.
 
-Sigue la arquitectura por slice:
+## Key environment variables
 
-```
-app/features/<feature>/
-    router.py       # endpoints FastAPI
-    schemas.py      # modelos Pydantic
-    service.py      # lógica de negocio
-    repository.py   # acceso a datos
-    models.py       # modelos SQLAlchemy (si hay tabla nueva)
-```
-
-Cuando añadas un modelo SQLAlchemy nuevo, impórtalo en `app/core/database.py::import_model_modules` y genera la migración:
-
-```powershell
-uv run alembic revision --autogenerate -m "descripcion"
-uv run alembic upgrade head
-```
-
-## Variables de entorno relevantes
-
-| Variable | Descripción |
+| Variable | Description |
 |---|---|
-| `APP_NAME` | Nombre de la aplicación |
-| `ENVIRONMENT` | `development` / `production` / `test` |
-| `SECRET_KEY` | Clave para firmar JWT (≥ 32 chars en producción) |
-| `DATABASE_URL` | URL de conexión a PostgreSQL |
-| `ADMIN_USERNAME` | Usuario administrador inicial |
-| `ADMIN_PASSWORD` | Contraseña del administrador inicial |
-| `ANTHROPIC_API_KEY` | **Obligatorio** — clave de la API de Anthropic (Claude) |
-| `LANGSMITH_API_KEY` | Opcional — clave de LangSmith para tracing |
-| `LANGSMITH_PROJECT` | Nombre del proyecto en LangSmith (default: `minecraftbutlerai`) |
-| `LANGSMITH_ENDPOINT` | Endpoint de LangSmith (p. ej. `https://eu.api.smith.langchain.com`) |
-| `LANGCHAIN_TRACING_V2` | `true` para activar tracing en LangSmith |
-| `SSL_VERIFY` | `false` en entornos con certificados corporativos/proxy |
+| `ANTHROPIC_API_KEY` | **Required** — Claude API key |
+| `SECRET_KEY` | JWT signing key (≥ 32 chars in production) |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `LANGSMITH_API_KEY` | Optional — LangSmith tracing |
+| `LANGCHAIN_TRACING_V2` | `true` to enable LangSmith |
 
-## Dependencias
+See `.example.env` for the full list.
 
-```powershell
-uv add <paquete>         # producción
-uv add --dev <paquete>   # solo desarrollo
-uv lock                  # regenerar uv.lock (commitear)
-```
+## Companion repo
+
+- [minecraft-butler-ai-mod](https://github.com/migue0418/minecraft-butler-ai-mod) — Fabric mod (Java) — the in-game client that talks to this API

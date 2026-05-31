@@ -99,6 +99,43 @@ class UsersRepository:
 - **Nunca SQLite**: los tests corren contra PostgreSQL (ver `docs/verification-guide.md`).
 - No mockear la base de datos para tests de integración de endpoints.
 
+## STT — Speech-to-Text (`app/features/butler/stt/`)
+
+El butler acepta audio de voz además de texto. La transcripción corre localmente con `faster-whisper` (sin API externa, sin coste por petición).
+
+### Endpoint
+
+```
+POST /api/butler/ask-voice   (multipart/form-data)
+  audio: UploadFile           — fichero de audio (wav, mp3, webm, ogg…)
+  session_id: str | None      — mismo que en /ask; opcional
+```
+
+Responde igual que `POST /api/butler/ask`: `list[ButlerAction]`.
+
+### Arquitectura
+
+- `app/features/butler/stt/service.py`: `WhisperModel` singleton + `transcribe_audio(bytes) -> str`.
+- Modelo cargado una vez en lifespan (`get_whisper_model()`), cero cold-start en la primera petición de voz.
+- `compute_type="int8"` en CPU: ~2× más rápido y mitad de memoria vs float32.
+- Audio vacío o sin habla detectada → HTTP 422.
+- `ffmpeg` requerido en el contenedor Docker para decodificar formatos distintos de WAV crudo.
+
+### Diferenciación en historial
+
+`HumanMessage.metadata={"input_mode": "voice"}` vs `{"input_mode": "text"}` — persiste en Redis junto con el historial multi-turn, permitiendo distinguir el origen de cada turno.
+
+### Settings
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `WHISPER_MODEL` | `base` | Tamaño del modelo: `tiny`, `base`, `small`, `medium`, `large-v3` |
+| `WHISPER_DEVICE` | `cpu` | `cpu` o `cuda` |
+
+### Tests
+
+Los tests usan `MagicMock()` como singleton del modelo — sin descarga real. Ver `tests/features/butler/test_stt_service.py`.
+
 ## LLM Factory (`app/features/butler/llm/`)
 
 El slice `butler` abstrae la instanciación de LLMs y embeddings detrás de dos factory functions config-driven:

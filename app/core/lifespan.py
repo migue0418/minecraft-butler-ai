@@ -62,8 +62,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Inicializar el grafo con checkpointer Redis antes de servir peticiones.
     # get_compiled_graph() crea el AsyncRedisSaver, ejecuta asetup() y compila el grafo.
     from app.features.butler.graph.graph import get_compiled_graph
+    from app.features.butler.stt import get_whisper_model
 
     await get_compiled_graph()
+    get_whisper_model()  # precalienta faster-whisper en startup → cero cold-start en /ask-voice
 
     yield
 

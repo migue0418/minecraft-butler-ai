@@ -11,6 +11,7 @@ class ButlerService:
         self,
         message: str,
         session_id: str | None = None,
+        input_mode: str = "text",
     ) -> list[ButlerAction]:
         graph = await get_compiled_graph()
         thread_id = session_id or f"ephemeral-{uuid4()}"
@@ -18,11 +19,14 @@ class ButlerService:
         state = await graph.ainvoke(
             {
                 "message": message,
-                "messages": [HumanMessage(content=message)],
+                "messages": [
+                    HumanMessage(content=message, metadata={"input_mode": input_mode}),
+                ],
                 "intent": "",
                 "doc_type": "none",
                 "retrieved_docs": [],
                 "actions": [],
+                "input_mode": input_mode,
             },
             config=config,
         )

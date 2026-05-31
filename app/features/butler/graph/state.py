@@ -11,3 +11,4 @@ class ButlerState(TypedDict):
     retrieved_docs: list[dict]
     actions: list[dict]
     messages: Annotated[list[AnyMessage], add_messages]
+    input_mode: str  # "text" | "voice"
