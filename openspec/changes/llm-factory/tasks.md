@@ -44,4 +44,4 @@
 ## 7. Cierre (OBLIGATORIO)
 
 - [x] 7.1 Actualizar `docs/backend-standards.md` con la sección del LLM factory (cómo añadir un nuevo proveedor)
-- [ ] 7.2 PR con `gh` usando la skill `write-pr-report`
+- [x] 7.2 PR con `gh` usando la skill `write-pr-report`
