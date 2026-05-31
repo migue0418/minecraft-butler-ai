@@ -207,6 +207,14 @@ def build_client(
     if initializer is not None:
         asyncio.run(initializer(database_url))
 
+    # En tests usamos MemorySaver en lugar de Redis para no requerir un servidor Redis.
+    from langgraph.checkpoint.memory import MemorySaver
+
+    from app.features.butler.graph import graph as _graph_module
+
+    test_graph = _graph_module.compile_graph(checkpointer=MemorySaver())
+    _graph_module._compiled_graph = test_graph
+
     try:
         limiter._storage.reset()
         app = create_app()
@@ -215,6 +223,7 @@ def build_client(
     finally:
         asyncio.run(close_database())
         get_settings.cache_clear()
+        _graph_module._compiled_graph = None  # reset singleton para siguientes tests
         asyncio.run(_drop_test_database(admin_url, database_name))
 
 
@@ -656,17 +665,20 @@ def test_ask_with_valid_token(client: TestClient) -> None:
 
 def test_ask_response_is_list(client: TestClient) -> None:
     tokens = login(client)
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "message": "test",
+            "intent": "speak",
+            "doc_type": "none",
+            "retrieved_docs": [],
+            "messages": [],
+            "actions": _SPEAK_RESPONSE,
+        },
+    )
     with patch(
-        "app.features.butler.service._graph",
-        ainvoke=AsyncMock(
-            return_value={
-                "message": "test",
-                "intent": "speak",
-                "doc_type": "none",
-                "retrieved_docs": [],
-                "actions": _SPEAK_RESPONSE,
-            },
-        ),
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
     ):
         response = client.post(
             "/api/butler/ask",
@@ -678,17 +690,20 @@ def test_ask_response_is_list(client: TestClient) -> None:
 
 def test_ask_with_coordinates_returns_move_to_position(client: TestClient) -> None:
     tokens = login(client)
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "message": "ve a 100 64 -50",
+            "intent": "move",
+            "doc_type": "none",
+            "retrieved_docs": [],
+            "messages": [],
+            "actions": _MOVE_RESPONSE,
+        },
+    )
     with patch(
-        "app.features.butler.service._graph",
-        ainvoke=AsyncMock(
-            return_value={
-                "message": "ve a 100 64 -50",
-                "intent": "move",
-                "doc_type": "none",
-                "retrieved_docs": [],
-                "actions": _MOVE_RESPONSE,
-            },
-        ),
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
     ):
         response = client.post(
             "/api/butler/ask",
@@ -706,17 +721,20 @@ def test_ask_with_coordinates_returns_move_to_position(client: TestClient) -> No
 
 def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
     tokens = login(client)
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "message": "hola Alfred",
+            "intent": "speak",
+            "doc_type": "none",
+            "retrieved_docs": [],
+            "messages": [],
+            "actions": _SPEAK_RESPONSE,
+        },
+    )
     with patch(
-        "app.features.butler.service._graph",
-        ainvoke=AsyncMock(
-            return_value={
-                "message": "hola Alfred",
-                "intent": "speak",
-                "doc_type": "none",
-                "retrieved_docs": [],
-                "actions": _SPEAK_RESPONSE,
-            },
-        ),
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
     ):
         response = client.post(
             "/api/butler/ask",
@@ -735,16 +753,22 @@ def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
 @pytest.mark.asyncio
 async def test_butler_service_question_intent() -> None:
     """ButlerService.run devuelve speak cuando el grafo clasifica 'question'."""
+    from app.features.butler.graph.graph import reset_compiled_graph
+
+    reset_compiled_graph()
     mock_state = {
         "message": "¿cómo fabrico una espada?",
         "intent": "question",
         "doc_type": "item",
         "retrieved_docs": [],
+        "messages": [],
         "actions": [{"type": "speak", "message": "Necesitas 2 palos y 3 diamantes."}],
     }
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=mock_state)
     with patch(
-        "app.features.butler.service._graph",
-        ainvoke=AsyncMock(return_value=mock_state),
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
     ):
         from app.features.butler.service import ButlerService
 
@@ -759,11 +783,15 @@ async def test_butler_service_question_intent() -> None:
 @pytest.mark.asyncio
 async def test_butler_service_move_intent() -> None:
     """ButlerService.run devuelve move_to_position cuando el grafo clasifica 'move'."""
+    from app.features.butler.graph.graph import reset_compiled_graph
+
+    reset_compiled_graph()
     mock_state = {
         "message": "ve a 100 64 -200",
         "intent": "move",
         "doc_type": "none",
         "retrieved_docs": [],
+        "messages": [],
         "actions": [
             {
                 "type": "move_to_position",
@@ -774,9 +802,11 @@ async def test_butler_service_move_intent() -> None:
             },
         ],
     }
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=mock_state)
     with patch(
-        "app.features.butler.service._graph",
-        ainvoke=AsyncMock(return_value=mock_state),
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
     ):
         from app.features.butler.service import ButlerService
 
@@ -915,3 +945,162 @@ async def test_retrieve_context_does_not_hard_filter_by_doc_type() -> None:
         )
 
     mock_retriever.assert_called_once_with("¿qué items dropea una vaca?")
+
+
+# ── conversation-memory: session_id y multi-turn ─────────────────────────────
+
+
+def test_ask_accepts_optional_session_id(client: TestClient) -> None:
+    """AskRequest acepta session_id opcional; sin él responde 200 igual."""
+    tokens = login(client)
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "message": "hola",
+            "intent": "speak",
+            "doc_type": "none",
+            "retrieved_docs": [],
+            "messages": [],
+            "actions": _SPEAK_RESPONSE,
+        },
+    )
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        r1 = client.post(
+            "/api/butler/ask",
+            json={"message": "hola"},
+            headers=auth_headers(tokens["access_token"]),
+        )
+        r2 = client.post(
+            "/api/butler/ask",
+            json={"message": "hola", "session_id": "player-abc"},
+            headers=auth_headers(tokens["access_token"]),
+        )
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_butler_service_uses_session_id_as_thread_id() -> None:
+    """ButlerService.run pasa session_id como thread_id al grafo."""
+    from app.features.butler.graph.graph import reset_compiled_graph
+
+    reset_compiled_graph()
+    mock_state = {
+        "message": "test",
+        "intent": "speak",
+        "doc_type": "none",
+        "retrieved_docs": [],
+        "messages": [],
+        "actions": [{"type": "speak", "message": "ok"}],
+    }
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=mock_state)
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        from app.features.butler.service import ButlerService
+
+        service = ButlerService()
+        await service.run("test", session_id="player-xyz")
+
+    _, call_kwargs = mock_graph.ainvoke.call_args
+    thread_id = call_kwargs.get("config", {}).get("configurable", {}).get("thread_id")
+    assert thread_id == "player-xyz"
+
+
+@pytest.mark.asyncio
+async def test_butler_service_ephemeral_thread_without_session_id() -> None:
+    """Sin session_id el servicio usa un thread_id efímero diferente en cada llamada."""
+    from app.features.butler.graph.graph import reset_compiled_graph
+
+    reset_compiled_graph()
+    mock_state = {
+        "message": "test",
+        "intent": "speak",
+        "doc_type": "none",
+        "retrieved_docs": [],
+        "messages": [],
+        "actions": [{"type": "speak", "message": "ok"}],
+    }
+    mock_graph = MagicMock()
+    mock_graph.ainvoke = AsyncMock(return_value=mock_state)
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        from app.features.butler.service import ButlerService
+
+        service = ButlerService()
+        await service.run("msg1")
+        await service.run("msg2")
+
+    calls = mock_graph.ainvoke.call_args_list
+    tid1 = (
+        calls[0].kwargs.get("config", {}).get("configurable", {}).get("thread_id", "")
+    )
+    tid2 = (
+        calls[1].kwargs.get("config", {}).get("configurable", {}).get("thread_id", "")
+    )
+    assert tid1 != tid2
+    assert tid1.startswith("ephemeral-")
+    assert tid2.startswith("ephemeral-")
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_memory_with_memory_saver() -> None:
+    """Dos turnos con el mismo thread_id acumulan messages en el estado."""
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from langchain_core.messages import AIMessage, HumanMessage
+    from langgraph.checkpoint.memory import MemorySaver
+
+    from app.features.butler.graph.graph import compile_graph
+    from app.features.butler.graph.routing import route_intent
+
+    graph = compile_graph(checkpointer=MemorySaver())
+    cfg = {"configurable": {"thread_id": "test-session"}}
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output = MagicMock(
+        return_value=MagicMock(
+            ainvoke=_AsyncMock(
+                return_value=MagicMock(intent="speak", doc_type="none"),
+            ),
+        ),
+    )
+    mock_llm.ainvoke = _AsyncMock(
+        return_value=MagicMock(content="Respuesta del asistente."),
+    )
+
+    with patch("app.features.butler.graph.nodes.get_llm", return_value=mock_llm):
+        state1 = await graph.ainvoke(
+            {
+                "message": "¿cómo fabrico una espada?",
+                "messages": [HumanMessage(content="¿cómo fabrico una espada?")],
+                "intent": "",
+                "doc_type": "none",
+                "retrieved_docs": [],
+                "actions": [],
+            },
+            config=cfg,
+        )
+        state2 = await graph.ainvoke(
+            {
+                "message": "¿y si no tengo materiales?",
+                "messages": [HumanMessage(content="¿y si no tengo materiales?")],
+                "intent": "",
+                "doc_type": "none",
+                "retrieved_docs": [],
+                "actions": [],
+            },
+            config=cfg,
+        )
+
+    # Después de dos turnos el historial debe tener al menos: H1 + AI1 + H2 + AI2
+    assert len(state2["messages"]) >= 4
+    assert isinstance(state2["messages"][0], HumanMessage)
+    assert isinstance(state2["messages"][-1], AIMessage)

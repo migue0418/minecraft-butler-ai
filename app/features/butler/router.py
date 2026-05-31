@@ -18,4 +18,4 @@ async def ask(
     _user: User = Depends(get_authenticated_user),
     service: ButlerService = Depends(get_butler_service),
 ) -> list[ButlerAction]:
-    return await service.run(req.message)
+    return await service.run(req.message, req.session_id)

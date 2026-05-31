@@ -130,6 +130,43 @@ El proveedor y los modelos se leen de `Settings`:
 4. Añadir la validación de API key en `validate_llm_api_keys`.
 5. Escribir tests en `tests/features/butler/test_llm_factory.py`.
 
+## Memoria de conversación (`app/features/butler/`)
+
+El butler es multi-turn: persiste el historial de cada sesión en Redis usando el checkpointer oficial de LangGraph.
+
+### Ciclo de vida
+
+- El grafo se compila una vez en el arranque (`lifespan` → `get_compiled_graph()`) con un `AsyncRedisSaver`.
+- `AsyncRedisSaver` requiere `redis/redis-stack` (incluye RediSearch); `redis:7-alpine` NO es suficiente.
+- El grafo **no se compila a nivel de módulo**. Usar `get_compiled_graph()` (async, cacheado).
+
+### Contrato de API
+
+```json
+POST /api/butler/ask
+{ "message": "...", "session_id": "player-uuid" }   // session_id opcional
+```
+
+- Con `session_id`: el historial se persiste bajo ese id (TTL configurable, default 24h).
+- Sin `session_id`: thread efímero, comportamiento stateless (compatible con el contrato anterior).
+
+### Settings de Redis
+
+| Variable de entorno | Default | Descripción |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379` | URL de conexión |
+| `REDIS_SESSION_TTL_SECONDS` | `86400` | TTL de sesión (renew on read) |
+
+### Estado del grafo
+
+`ButlerState` incluye `messages: Annotated[list[AnyMessage], add_messages]`. El reducer `add_messages` acumula el historial entre turnos. `answer_question` construye el prompt del LLM con el historial completo.
+
+### Tests
+
+Los tests usan `MemorySaver` (sin Redis real):
+- `build_client()` instala `compile_graph(MemorySaver())` en `_compiled_graph` antes del lifespan.
+- Tests async independientes llaman `reset_compiled_graph()` antes de mockear `get_compiled_graph`.
+
 ## RAG Pipeline (`app/features/butler/rag/`)
 
 El butler usa un pipeline RAG para responder preguntas sobre Minecraft con fuente de verdad oficial.

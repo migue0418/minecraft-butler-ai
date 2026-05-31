@@ -45,4 +45,4 @@
 ## 7. Cierre (OBLIGATORIO)
 
 - [x] 7.1 Actualizar `docs/backend-standards.md` o `docs/data-model.md` si es necesario; actualizar `README.md` con instrucción de configurar `ANTHROPIC_API_KEY`
-- [ ] 7.2 Abrir PR con `gh` usando la skill `write-pr-report`
+- [x] 7.2 Abrir PR con `gh` usando la skill `write-pr-report`

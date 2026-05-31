@@ -76,30 +76,12 @@ Docker compose final: `postgres` + `backend` + `qdrant` + `redis`
 
 ## Roadmap pendiente
 
-### Fase 2 — `conversation-memory` ⭐⭐⭐ (antes era Fase 1 rag-core, ya completada)
-
-**Qué demuestra:** diseño de pipelines RAG de producción — hybrid search, reranking, ingesta.
-
-Pipeline de recuperación:
-```
-Query
-  └─ Query Rewriter          (mejora la query antes de buscar)
-  └─ Hybrid Search           (Qdrant: dense vectors + sparse BM25)
-       └─ RRF Fusion         (combina rankings)
-  └─ Reranker                (FlashRank cross-encoder)
-  └─ Top-K chunks ──────────▶ LLM context
-```
-
-Contenido del vector store:
-- Recetas de crafteo (Minecraft data pack JSON — 2000+ recetas, ground truth exacto)
-- Mecánicas y guía del juego (Minecraft Wiki)
-
-Cambios en el grafo:
-- Nuevo nodo `retrieve_context` entre `classify_intent` y `answer_question`
-- Skip del nodo si intent es `move` o `speak` (no necesita RAG)
-- Estado ampliado con `retrieved_docs: list[Document]`
-
-Docker: añadir `qdrant` al compose.
+### `conversation-memory` ✅ (completado)
+- Redis Checkpointer de LangGraph (`AsyncRedisSaver`, requiere `redis/redis-stack`)
+- `session_id` opcional en `POST /api/butler/ask` (sin él: comportamiento stateless)
+- `ButlerState.messages` con `add_messages`: historial acumulado entre turnos
+- TTL configurable (default 24h, renew on read); grafo compilado en lifespan
+- Tests con `MemorySaver`; multi-turn verificado con Redis real (57 tests en verde)
 
 ---
 
