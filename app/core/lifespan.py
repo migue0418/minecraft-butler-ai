@@ -58,5 +58,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await init_database()
     async with session_scope() as session:
         await seed_admin_user(session)
+
+    # Inicializar el grafo con checkpointer Redis antes de servir peticiones.
+    # get_compiled_graph() crea el AsyncRedisSaver, ejecuta asetup() y compila el grafo.
+    from app.features.butler.graph.graph import get_compiled_graph
+
+    await get_compiled_graph()
+
     yield
+
     await close_database()

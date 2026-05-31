@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_top_k: int = 5
     qdrant_prefetch_limit: int = 20
+    redis_url: str = "redis://localhost:6379"
+    redis_session_ttl_seconds: int = 86400
     langsmith_api_key: str = ""
     langsmith_project: str = "minecraftbutlerai"
     langsmith_endpoint: str = ""

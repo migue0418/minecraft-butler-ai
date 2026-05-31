@@ -1,5 +1,6 @@
 from typing import Literal
 
+from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 
 from app.features.butler.graph.state import ButlerState
@@ -79,19 +80,21 @@ async def answer_question(state: ButlerState) -> dict:
     else:
         system_prompt = _MINECRAFT_SYSTEM_PROMPT
 
+    # Usar el historial acumulado de mensajes para dar contexto multi-turn al LLM.
+    history = state.get("messages", [])
     response = await llm.ainvoke(
-        [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": state["message"]},
-        ],
+        [{"role": "system", "content": system_prompt}, *history],
     )
+    ai_msg = AIMessage(content=str(response.content))
     return {
+        "messages": [ai_msg],
         "actions": [{"type": "speak", "message": str(response.content)}],
     }
 
 
 async def speak_action(state: ButlerState) -> dict:
     return {
+        "messages": [AIMessage(content=state["message"])],
         "actions": [{"type": "speak", "message": state["message"]}],
     }
 
@@ -103,19 +106,21 @@ async def move_action(state: ButlerState) -> dict:
     match = pattern.search(state["message"])
     if match:
         x, y, z = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        msg = "Me dirijo allí."
         return {
+            "messages": [AIMessage(content=msg)],
             "actions": [
                 {
                     "type": "move_to_position",
-                    "message": "Me dirijo allí.",
+                    "message": msg,
                     "x": x,
                     "y": y,
                     "z": z,
                 },
             ],
         }
+    msg = "No he podido detectar las coordenadas."
     return {
-        "actions": [
-            {"type": "speak", "message": "No he podido detectar las coordenadas."},
-        ],
+        "messages": [AIMessage(content=msg)],
+        "actions": [{"type": "speak", "message": msg}],
     }
