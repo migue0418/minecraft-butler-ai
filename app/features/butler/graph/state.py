@@ -12,3 +12,5 @@ class ButlerState(TypedDict):
     actions: list[dict]
     messages: Annotated[list[AnyMessage], add_messages]
     input_mode: str  # "text" | "voice"
+    world_context: dict | None
+    needs_world_context: bool

@@ -752,6 +752,83 @@ def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
     assert actions[0]["type"] == "speak"
 
 
+# ── Butler world_context router tests ────────────────────────────────────────
+
+_WORLD_CONTEXT_PAYLOAD = {
+    "player": {
+        "x": 100,
+        "y": 64,
+        "z": -50,
+        "inventory": [{"item": "minecraft:iron_ingot", "count": 5}],
+    },
+    "chests": [
+        {"name": "despensa", "items": [{"item": "minecraft:bread", "count": 10}]},
+    ],
+    "nearby": {
+        "animals": [{"type": "minecraft:cow", "count": 3}],
+        "crops": [{"type": "minecraft:wheat", "mature": 5, "growing": 2}],
+    },
+}
+
+
+def test_ask_without_world_context_still_works(client: TestClient) -> None:
+    tokens = login(client)
+    with patch(
+        "app.features.butler.service.ButlerService.run",
+        new_callable=AsyncMock,
+        return_value=[
+            type(
+                "BA",
+                (),
+                {"type": "speak", "message": "ok", "x": None, "y": None, "z": None},
+            )(),
+        ],
+    ):
+        response = client.post(
+            "/api/butler/ask",
+            json={"message": "hola"},
+            headers=auth_headers(tokens["access_token"]),
+        )
+    assert response.status_code == 200
+
+
+def test_ask_with_valid_world_context_returns_200(client: TestClient) -> None:
+    tokens = login(client)
+    with patch(
+        "app.features.butler.service.ButlerService.run",
+        new_callable=AsyncMock,
+        return_value=[
+            type(
+                "BA",
+                (),
+                {"type": "speak", "message": "ok", "x": None, "y": None, "z": None},
+            )(),
+        ],
+    ) as mock_run:
+        response = client.post(
+            "/api/butler/ask",
+            json={"message": "¿tengo hierro?", "world_context": _WORLD_CONTEXT_PAYLOAD},
+            headers=auth_headers(tokens["access_token"]),
+        )
+    assert response.status_code == 200
+    call_kwargs = mock_run.call_args
+    assert call_kwargs.kwargs.get("world_context") is not None
+    assert call_kwargs.kwargs["world_context"]["player"]["x"] == 100
+
+
+def test_ask_with_invalid_world_context_returns_422(client: TestClient) -> None:
+    tokens = login(client)
+    response = client.post(
+        "/api/butler/ask",
+        json={
+            "message": "test",
+            "world_context": {"player": "not-an-object", "nearby": {}},
+        },
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code == 422
+
+
 # ── Butler graph unit tests ──────────────────────────────────────────────────
 
 
@@ -1073,7 +1150,11 @@ async def test_multi_turn_memory_with_memory_saver() -> None:
     mock_llm.with_structured_output = MagicMock(
         return_value=MagicMock(
             ainvoke=_AsyncMock(
-                return_value=MagicMock(intent="speak", doc_type="none"),
+                return_value=MagicMock(
+                    intent="speak",
+                    doc_type="none",
+                    needs_world_context=False,
+                ),
             ),
         ),
     )
@@ -1082,7 +1163,7 @@ async def test_multi_turn_memory_with_memory_saver() -> None:
     )
 
     with patch("app.features.butler.graph.nodes.get_llm", return_value=mock_llm):
-        state1 = await graph.ainvoke(
+        await graph.ainvoke(
             {
                 "message": "¿cómo fabrico una espada?",
                 "messages": [HumanMessage(content="¿cómo fabrico una espada?")],
