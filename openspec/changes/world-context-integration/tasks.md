@@ -46,4 +46,4 @@
 ## 7. Cierre (OBLIGATORIO)
 
 - [x] 7.1 Actualizar `docs/backend-standards.md`: contrato de world_context en ambos endpoints + sección World Context con formato, selección selectiva e instrucción de no persistir en Redis
-- [ ] 7.2 PR con `gh pr create` usando la skill `write-pr-report`
+- [x] 7.2 PR creado: https://github.com/migue0418/minecraft-butler-ai-backend/pull/7
