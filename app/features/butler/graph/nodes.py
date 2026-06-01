@@ -25,6 +25,63 @@ _MINECRAFT_SYSTEM_PROMPT_WITH_CONTEXT = (
 class IntentOutput(BaseModel):
     intent: Literal["question", "move", "speak"]
     doc_type: Literal["item", "mob", "mechanic", "none"] = "none"
+    needs_world_context: bool = False
+
+
+def format_world_context(ctx: dict) -> str:
+    lines = ["Contexto del mundo del jugador:"]
+
+    player = ctx.get("player", {})
+    if player:
+        lines.append(
+            f"- Posición: ({player.get('x', '?')}, {player.get('y', '?')}, {player.get('z', '?')})",
+        )
+        inv = sorted(
+            player.get("inventory", []),
+            key=lambda e: e.get("count", 0),
+            reverse=True,
+        )
+        if inv:
+            top = inv[:10]
+            inv_str = ", ".join(f"{e['count']}× {e['item']}" for e in top)
+            if len(inv) > 10:
+                inv_str += f" (y {len(inv) - 10} tipos más)"
+            lines.append(f"- Inventario: {inv_str}")
+
+    for chest in ctx.get("chests", []):
+        items = sorted(
+            chest.get("items", []),
+            key=lambda e: e.get("count", 0),
+            reverse=True,
+        )[:5]
+        if items:
+            items_str = ", ".join(f"{i['count']}× {i['item']}" for i in items)
+            lines.append(f'- Cofre "{chest["name"]}": {items_str}')
+
+    nearby = ctx.get("nearby", {})
+    animals = nearby.get("animals", [])[:5]
+    if animals:
+        lines.append(
+            "- Animales cercanos: "
+            + ", ".join(f"{a['count']} {a['type']}" for a in animals),
+        )
+
+    crops = nearby.get("crops", [])
+    if crops:
+        crops_str = ", ".join(
+            f"{c['type']} ({c['mature']} maduros, {c['growing']} creciendo)"
+            for c in crops
+        )
+        lines.append(f"- Cultivos cercanos: {crops_str}")
+
+    return "\n".join(lines)
+
+
+def _build_system_prompt(base_prompt: str, state: ButlerState) -> str:
+    if state.get("needs_world_context") and state.get("world_context"):
+        ctx_text = format_world_context(state["world_context"])
+        return base_prompt + "\n\n" + ctx_text
+    return base_prompt
 
 
 async def classify_intent(state: ButlerState) -> dict:
@@ -42,13 +99,23 @@ async def classify_intent(state: ButlerState) -> dict:
                     "- item: preguntas sobre ítems, objetos, herramientas, armaduras, recetas de crafteo\n"
                     "- mob: preguntas sobre mobs, criaturas, enemigos, animales\n"
                     "- mechanic: preguntas sobre mecánicas del juego, sistemas, survival, redstone\n"
-                    "- none: si la intención no es 'question' o no aplica ningún tipo anterior"
+                    "- none: si la intención no es 'question' o no aplica ningún tipo anterior\n\n"
+                    "También determina `needs_world_context`: true si la pregunta se refiere al estado "
+                    "actual del mundo del jugador (su inventario, cofres, animales cercanos, cultivos), "
+                    "false si es una pregunta general de conocimiento sobre Minecraft.\n"
+                    "Ejemplos needs_world_context=true: '¿tengo hierro?', '¿qué hay en mis cofres?', "
+                    "'¿están listos los cultivos?'\n"
+                    "Ejemplos needs_world_context=false: '¿cómo crafteo una espada?', '¿qué dropea una vaca?'"
                 ),
             },
             {"role": "user", "content": state["message"]},
         ],
     )
-    return {"intent": result.intent, "doc_type": result.doc_type}
+    return {
+        "intent": result.intent,
+        "doc_type": result.doc_type,
+        "needs_world_context": result.needs_world_context,
+    }
 
 
 async def retrieve_context(state: ButlerState) -> dict:
@@ -76,9 +143,11 @@ async def answer_question(state: ButlerState) -> dict:
 
         docs = [RetrievedDoc(**d) for d in retrieved_docs]
         context = build_context(docs)
-        system_prompt = _MINECRAFT_SYSTEM_PROMPT_WITH_CONTEXT.format(context=context)
+        base_system = _MINECRAFT_SYSTEM_PROMPT_WITH_CONTEXT.format(context=context)
     else:
-        system_prompt = _MINECRAFT_SYSTEM_PROMPT
+        base_system = _MINECRAFT_SYSTEM_PROMPT
+
+    system_prompt = _build_system_prompt(base_system, state)
 
     # Usar el historial acumulado de mensajes para dar contexto multi-turn al LLM.
     history = state.get("messages", [])
@@ -95,8 +164,9 @@ async def answer_question(state: ButlerState) -> dict:
 async def speak_action(state: ButlerState) -> dict:
     llm = get_llm("responder")
     history = state.get("messages", [])
+    system = _build_system_prompt(_MINECRAFT_SYSTEM_PROMPT, state)
     response = await llm.ainvoke(
-        [{"role": "system", "content": _MINECRAFT_SYSTEM_PROMPT}, *history],
+        [{"role": "system", "content": system}, *history],
     )
     ai_msg = AIMessage(content=str(response.content))
     return {

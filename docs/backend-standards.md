@@ -109,6 +109,7 @@ El butler acepta audio de voz además de texto. La transcripción corre localmen
 POST /api/butler/ask-voice   (multipart/form-data)
   audio: UploadFile           — fichero de audio (wav, mp3, webm, ogg…)
   session_id: str | None      — mismo que en /ask; opcional
+  world_context: str | None   — JSON serializado de WorldContextDTO; opcional
 ```
 
 Responde igual que `POST /api/butler/ask`: `list[ButlerAction]`.
@@ -135,6 +136,42 @@ Responde igual que `POST /api/butler/ask`: `list[ButlerAction]`.
 ### Tests
 
 Los tests usan `MagicMock()` como singleton del modelo — sin descarga real. Ver `tests/features/butler/test_stt_service.py`.
+
+## World Context (`app/features/butler/`)
+
+El butler acepta contexto del mundo del jugador para responder preguntas sobre su estado actual (inventario, cofres, animales cercanos, cultivos).
+
+### Contrato
+
+`POST /api/butler/ask` acepta `world_context: WorldContextDTO | None` en el body JSON:
+
+```json
+{
+  "message": "¿tengo hierro suficiente?",
+  "world_context": {
+    "player": {"x": 100, "y": 64, "z": -50, "inventory": [{"item": "minecraft:iron_ingot", "count": 5}]},
+    "chests": [{"name": "materiales", "items": [...]}],
+    "nearby": {"animals": [{"type": "minecraft:cow", "count": 3}], "crops": [...]}
+  }
+}
+```
+
+`POST /api/butler/ask-voice` acepta `world_context` como form field de texto (JSON serializado).
+
+Ambos campos son **opcionales** — si ausentes, el comportamiento es idéntico al anterior (retrocompatible).
+
+### Selección selectiva de contexto
+
+El nodo `classify_intent` determina si la pregunta requiere contexto del mundo (`needs_world_context: bool`). Solo se inyecta en el prompt cuando es `True` y el contexto está disponible.
+
+- `needs_world_context=True`: "¿tengo hierro?", "¿qué hay en mis cofres?", "¿están listos los cultivos?"
+- `needs_world_context=False`: "¿cómo crafteo una espada?", "¿qué dropea una vaca?"
+
+### Formato inyectado
+
+El contexto se formatea como texto compacto (~80 tokens) con `format_world_context()` en `nodes.py`. Se inyecta en el **system prompt** del request actual, **no** en `messages` (el contexto es efímero, no persiste en Redis).
+
+IDs de Minecraft se usan tal cual (`minecraft:iron_ingot`).
 
 ## LLM Factory (`app/features/butler/llm/`)
 

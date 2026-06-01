@@ -12,6 +12,7 @@ class ButlerService:
         message: str,
         session_id: str | None = None,
         input_mode: str = "text",
+        world_context: dict | None = None,
     ) -> list[ButlerAction]:
         graph = await get_compiled_graph()
         thread_id = session_id or f"ephemeral-{uuid4()}"
@@ -27,6 +28,8 @@ class ButlerService:
                 "retrieved_docs": [],
                 "actions": [],
                 "input_mode": input_mode,
+                "world_context": world_context,
+                "needs_world_context": False,
             },
             config=config,
         )
