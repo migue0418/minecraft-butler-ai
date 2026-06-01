@@ -39,4 +39,4 @@
 
 ## 8. Cierre (OBLIGATORIO)
 - [x] 8.1 Actualizar `docs/backend-standards.md` (sección STT añadida)
-- [ ] 8.2 PR con `gh` usando la skill `write-pr-report`
+- [x] 8.2 PR con `gh` usando la skill `write-pr-report`
