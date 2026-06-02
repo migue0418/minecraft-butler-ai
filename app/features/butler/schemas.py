@@ -23,6 +23,11 @@ class AnimalGroup(BaseModel):
     count: int
 
 
+class MonsterGroup(BaseModel):
+    type: str
+    count: int
+
+
 class CropGroup(BaseModel):
     type: str
     mature: int
@@ -31,6 +36,7 @@ class CropGroup(BaseModel):
 
 class NearbyContext(BaseModel):
     animals: list[AnimalGroup] = []
+    monsters: list[MonsterGroup] = []
     crops: list[CropGroup] = []
 
 

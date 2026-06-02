@@ -102,3 +102,40 @@ def test_format_world_context_empty_inventory_no_inventory_line():
 def test_format_world_context_always_has_header():
     result = format_world_context(_make_ctx())
     assert result.startswith("Contexto del mundo del jugador:")
+
+
+def test_format_world_context_includes_monsters():
+    ctx = _make_ctx(
+        nearby={
+            "monsters": [{"type": "minecraft:zombie", "count": 2}],
+            "animals": [],
+            "crops": [],
+        },
+    )
+    result = format_world_context(ctx)
+    assert "minecraft:zombie" in result
+    assert "Monstruos cercanos" in result
+
+
+def test_format_world_context_monsters_before_animals():
+    ctx = _make_ctx(
+        nearby={
+            "monsters": [{"type": "minecraft:zombie", "count": 1}],
+            "animals": [{"type": "minecraft:cow", "count": 3}],
+            "crops": [],
+        },
+    )
+    result = format_world_context(ctx)
+    assert result.index("Monstruos") < result.index("Animales")
+
+
+def test_format_world_context_empty_chest_shows_vacio():
+    ctx = _make_ctx(chests=[{"name": "piedra", "items": []}])
+    result = format_world_context(ctx)
+    assert 'Cofre "piedra": vacío' in result
+
+
+def test_format_world_context_no_monsters_no_monsters_line():
+    ctx = _make_ctx(nearby={"animals": [], "monsters": [], "crops": []})
+    result = format_world_context(ctx)
+    assert "Monstruos" not in result

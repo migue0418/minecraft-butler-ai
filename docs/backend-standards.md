@@ -152,7 +152,11 @@ El butler acepta contexto del mundo del jugador para responder preguntas sobre s
   "world_context": {
     "player": {"x": 100, "y": 64, "z": -50, "inventory": [{"item": "minecraft:iron_ingot", "count": 5}]},
     "chests": [{"name": "materiales", "items": [...]}],
-    "nearby": {"animals": [{"type": "minecraft:cow", "count": 3}], "crops": [...]}
+    "nearby": {
+      "animals": [{"type": "minecraft:cow", "count": 3}],
+      "monsters": [{"type": "minecraft:zombie", "count": 1}],
+      "crops": [...]
+    }
   }
 }
 ```
