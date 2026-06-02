@@ -40,4 +40,4 @@
 ## 7. Cierre (OBLIGATORIO)
 
 - [x] 7.1 Actualizar `docs/backend-standards.md`: rate limiting ahora cubre endpoints del butler; nuevo setting `qdrant_score_threshold`; nota de STT no bloqueante
-- [ ] 7.2 PR con `gh pr create` usando la skill `write-pr-report`
+- [x] 7.2 PR con `gh pr create` usando la skill `write-pr-report`
