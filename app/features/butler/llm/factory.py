@@ -33,6 +33,7 @@ def _apply_hf_ssl_bypass_if_needed() -> None:
         pass
 
 
+@lru_cache(maxsize=None)
 def get_llm(role: LLMRole) -> BaseChatModel:
     """Devuelve un BaseChatModel configurado según el rol semántico y Settings.
 

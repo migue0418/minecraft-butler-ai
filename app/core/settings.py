@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_top_k: int = 5
     qdrant_prefetch_limit: int = 20
+    qdrant_score_threshold: float = 0.0
     redis_url: str = "redis://localhost:6379"
     redis_session_ttl_seconds: int = 86400
     whisper_model: str = "base"

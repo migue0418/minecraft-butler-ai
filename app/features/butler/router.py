@@ -1,8 +1,19 @@
+import asyncio
 import json as json_lib
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 
+from app.core.limiter import limiter
 from app.features.auth.dependencies import get_authenticated_user
 from app.features.butler.schemas import AskRequest, ButlerAction
 from app.features.butler.service import ButlerService, get_butler_service
@@ -19,8 +30,10 @@ router = APIRouter(prefix="/api/butler", tags=["Butler"])
     response_model=list[ButlerAction],
     response_model_exclude_none=True,
 )
+@limiter.limit("20/minute")
 async def ask(
     req: AskRequest,
+    request: Request,
     _user: User = Depends(get_authenticated_user),
     service: ButlerService = Depends(get_butler_service),
 ) -> list[ButlerAction]:
@@ -38,7 +51,9 @@ async def ask(
     response_model=list[ButlerAction],
     response_model_exclude_none=True,
 )
+@limiter.limit("20/minute")
 async def ask_voice(
+    request: Request,
     audio: UploadFile = File(...),
     session_id: str | None = Form(None),
     world_context: str | None = Form(None),
@@ -47,7 +62,7 @@ async def ask_voice(
 ) -> list[ButlerAction]:
     audio_bytes = await audio.read()
     try:
-        transcript = transcribe_audio(audio_bytes)
+        transcript = await asyncio.to_thread(transcribe_audio, audio_bytes)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

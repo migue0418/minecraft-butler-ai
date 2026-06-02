@@ -291,3 +291,61 @@ class TestGetRetriever:
 
         mock_ds.assert_called_once_with("diamond sword", doc_type_filter="item")
         assert result == [mock_doc]
+
+
+# ── Score threshold filtering ─────────────────────────────────────────────────
+
+
+class TestScoreThreshold:
+    def _make_points_with_scores(self, scores: list[float]) -> list:
+        return [
+            _make_qdrant_point(str(i), f"doc {i}", "item", score=s)
+            for i, s in enumerate(scores)
+        ]
+
+    def _run_search(self, scores: list[float], threshold: float) -> list:
+        from app.features.butler.rag.retriever import dense_search
+
+        config = RetrieverConfig(
+            qdrant_url="http://localhost:6333",
+            collection="test",
+            api_key="",
+            top_k=10,
+            prefetch_limit=20,
+            embedding_model="test-model",
+            score_threshold=threshold,
+        )
+        points = self._make_points_with_scores(scores)
+        mock_response = _make_query_response(points)
+        mock_client = MagicMock()
+        mock_client.query_points.return_value = mock_response
+
+        with (
+            patch(
+                "app.features.butler.rag.retriever.get_qdrant_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.features.butler.rag.retriever._encode_dense",
+                return_value=[0.1] * 384,
+            ),
+        ):
+            return dense_search("test query", config=config)
+
+    def test_threshold_filters_low_score_docs(self):
+        docs = self._run_search([0.45, 0.32, 0.18, 0.10], threshold=0.3)
+        assert len(docs) == 2
+        assert all(d.score >= 0.3 for d in docs)
+
+    def test_zero_threshold_returns_all_docs(self):
+        docs = self._run_search([0.45, 0.32, 0.18, 0.10], threshold=0.0)
+        assert len(docs) == 4
+
+    def test_high_threshold_returns_empty(self):
+        docs = self._run_search([0.45, 0.32, 0.18], threshold=0.9)
+        assert docs == []
+
+    def test_exact_threshold_boundary_is_inclusive(self):
+        docs = self._run_search([0.30, 0.29], threshold=0.3)
+        assert len(docs) == 1
+        assert docs[0].score == 0.30
