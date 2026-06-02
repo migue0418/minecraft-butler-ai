@@ -1,4 +1,9 @@
-## ADDED Requirements
+# voice-stt-input Specification
+
+## Purpose
+Entrada de voz al butler mediante transcripción local con faster-whisper. Expone un endpoint de voz que acepta audio, lo transcribe de forma no bloqueante y lo procesa con el mismo pipeline que el endpoint de texto.
+
+## Requirements
 
 ### Requirement: Transcripción de audio a texto con faster-whisper
 El sistema SHALL transcribir ficheros de audio a texto usando `faster-whisper` ejecutado localmente en proceso, sin dependencias de APIs externas. El modelo Whisper SHALL cargarse una única vez en el arranque de la aplicación (lifespan) para evitar latencia por petición.
@@ -48,3 +53,14 @@ El sistema SHALL marcar el origen de cada turno en el historial de `messages` al
 #### Scenario: Historial multi-turn mezcla turnos de texto y voz
 - **WHEN** se alternan peticiones de texto y voz con el mismo `session_id`
 - **THEN** el historial contiene ambos tipos de `HumanMessage` con sus respectivos `input_mode`
+
+### Requirement: Transcripción STT no bloqueante del event loop
+El sistema SHALL ejecutar la transcripción de audio (CPU-bound, síncrona) fuera del hilo del event loop, de modo que `POST /api/butler/ask-voice` no bloquee el procesamiento de otras peticiones mientras Whisper transcribe. La transcripción se delega a un thread del pool mediante `asyncio.to_thread` (o equivalente).
+
+#### Scenario: Petición concurrente no se bloquea durante la transcripción
+- **WHEN** una petición a `/api/butler/ask-voice` está transcribiendo audio y llega una segunda petición a cualquier endpoint
+- **THEN** la segunda petición se procesa sin esperar a que termine la transcripción de la primera
+
+#### Scenario: La transcripción sigue devolviendo el mismo resultado
+- **WHEN** se transcribe un audio válido de forma no bloqueante
+- **THEN** el texto transcrito es idéntico al que producía la transcripción síncrona y el flujo del butler continúa igual

@@ -752,6 +752,39 @@ def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
     assert actions[0]["type"] == "speak"
 
 
+# ── Butler rate limiting tests ───────────────────────────────────────────────
+
+
+def test_ask_rate_limit_returns_429_after_20_requests(client: TestClient) -> None:
+    """POST /api/butler/ask devuelve 429 después de 20 peticiones por minuto."""
+    tokens = login(client)
+    limiter._storage.reset()
+    with patch(
+        "app.features.butler.service.ButlerService.run",
+        new_callable=AsyncMock,
+        return_value=[
+            type(
+                "BA",
+                (),
+                {"type": "speak", "message": "ok", "x": None, "y": None, "z": None},
+            )(),
+        ],
+    ):
+        responses = [
+            client.post(
+                "/api/butler/ask",
+                json={"message": "hola"},
+                headers=auth_headers(tokens["access_token"]),
+            )
+            for _ in range(21)
+        ]
+
+    ok_responses = [r for r in responses if r.status_code == 200]
+    rate_limited = [r for r in responses if r.status_code == 429]
+    assert len(ok_responses) == 20
+    assert len(rate_limited) == 1
+
+
 # ── Butler world_context router tests ────────────────────────────────────────
 
 _WORLD_CONTEXT_PAYLOAD = {
@@ -1350,3 +1383,38 @@ def test_ask_voice_passes_session_id(client: TestClient) -> None:
     _, call_kwargs = mock_graph.ainvoke.call_args
     thread_id = call_kwargs.get("config", {}).get("configurable", {}).get("thread_id")
     assert thread_id == "player-voice-session"
+
+
+def test_ask_voice_transcription_uses_asyncio_to_thread(client: TestClient) -> None:
+    """La transcripción STT se delega a asyncio.to_thread (no bloquea el event loop)."""
+    tokens = login(client)
+    with (
+        patch(
+            "app.features.butler.service.ButlerService.run",
+            new_callable=AsyncMock,
+            return_value=[
+                type(
+                    "BA",
+                    (),
+                    {"type": "speak", "message": "ok", "x": None, "y": None, "z": None},
+                )(),
+            ],
+        ),
+        patch(
+            "asyncio.to_thread",
+            new_callable=AsyncMock,
+            return_value="transcripción mockeada",
+        ) as mock_to_thread,
+    ):
+        response = client.post(
+            "/api/butler/ask-voice",
+            files={"audio": ("test.wav", b"fake_bytes", "audio/wav")},
+            headers=auth_headers(tokens["access_token"]),
+        )
+
+    assert response.status_code == 200
+    mock_to_thread.assert_called_once()
+    # El primer argumento debe ser la función de transcripción
+    from app.features.butler.stt import transcribe_audio as _transcribe
+
+    assert mock_to_thread.call_args[0][0] is _transcribe

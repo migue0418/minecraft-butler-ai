@@ -16,3 +16,4 @@ class RetrieverConfig(BaseModel):
     top_k: int
     prefetch_limit: int
     embedding_model: str
+    score_threshold: float = 0.0

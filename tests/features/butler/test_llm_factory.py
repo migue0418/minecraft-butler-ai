@@ -119,6 +119,16 @@ class TestSettingsLLMValidation:
 
 
 class TestGetLlm:
+    def setup_method(self):
+        from app.features.butler.llm.factory import get_llm
+
+        get_llm.cache_clear()
+
+    def teardown_method(self):
+        from app.features.butler.llm.factory import get_llm
+
+        get_llm.cache_clear()
+
     def test_anthropic_provider_returns_chat_anthropic(self):
         from langchain_anthropic import ChatAnthropic
 
@@ -287,3 +297,61 @@ class TestGetEmbeddingModel:
         call_kwargs = mock_cls.call_args.kwargs
         assert call_kwargs["model_name"] == "sentence-transformers/all-MiniLM-L6-v2"
         assert "model_kwargs" in call_kwargs
+
+
+# ── get_llm cache ─────────────────────────────────────────────────────────────
+
+
+class TestGetLLMCache:
+    def setup_method(self):
+        from app.features.butler.llm.factory import get_llm
+
+        get_llm.cache_clear()
+
+    def teardown_method(self):
+        from app.features.butler.llm.factory import get_llm
+
+        get_llm.cache_clear()
+
+    def test_same_role_returns_same_instance(self):
+        from app.features.butler.llm.factory import get_llm
+
+        settings = _make_settings(
+            llm_provider="anthropic",
+            anthropic_api_key="sk-ant-test",
+        )
+        with (
+            patch(
+                "app.features.butler.llm.factory.get_settings",
+                return_value=settings,
+            ),
+            patch("langchain_anthropic.ChatAnthropic") as mock_cls,
+        ):
+            mock_cls.return_value = object()
+            first = get_llm("responder")
+            second = get_llm("responder")
+
+        assert first is second
+        assert mock_cls.call_count == 1
+
+    def test_different_roles_return_different_instances(self):
+        from app.features.butler.llm.factory import get_llm
+
+        settings = _make_settings(
+            llm_provider="anthropic",
+            anthropic_api_key="sk-ant-test",
+        )
+        with (
+            patch(
+                "app.features.butler.llm.factory.get_settings",
+                return_value=settings,
+            ),
+            patch(
+                "langchain_anthropic.ChatAnthropic",
+                side_effect=lambda **kw: object(),
+            ),
+        ):
+            classifier = get_llm("classifier")
+            responder = get_llm("responder")
+
+        assert classifier is not responder

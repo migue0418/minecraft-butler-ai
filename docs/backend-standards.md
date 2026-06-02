@@ -119,6 +119,7 @@ Responde igual que `POST /api/butler/ask`: `list[ButlerAction]`.
 - `app/features/butler/stt/service.py`: `WhisperModel` singleton + `transcribe_audio(bytes) -> str`.
 - Modelo cargado una vez en lifespan (`get_whisper_model()`), cero cold-start en la primera petición de voz.
 - `compute_type="int8"` en CPU: ~2× más rápido y mitad de memoria vs float32.
+- La transcripción es CPU-bound y se ejecuta fuera del event loop: `await asyncio.to_thread(transcribe_audio, audio_bytes)` en `router.py`.
 - Audio vacío o sin habla detectada → HTTP 422.
 - `ffmpeg` requerido en el contenedor Docker para decodificar formatos distintos de WAV crudo.
 
@@ -299,10 +300,11 @@ Fuentes: `PrismarineJS/minecraft-data 1.21.6` (ítems, mobs) + Minecraft Wiki (m
 | `QDRANT_COLLECTION` | `minecraft_knowledge` | Nombre de la colección |
 | `QDRANT_TOP_K` | `5` | Docs a devolver al LLM |
 | `QDRANT_PREFETCH_LIMIT` | `20` | Candidatos antes del reranking |
+| `QDRANT_SCORE_THRESHOLD` | `0.0` | Score mínimo de similitud para incluir un doc en el prompt. `0.0` = sin filtrado (retrocompatible). Valor productivo recomendado: `0.3`. |
 
 ## Seguridad
 
 - Passwords con `pwdlib[argon2]` (`hash_password`/`verify_password` en `app.features.auth.security`).
 - JWT para acceso; refresh tokens revocables (ver slice `auth`). Al desactivar/borrar usuario, revoca sus refresh tokens.
-- Rate limiting con SlowAPI (`app/core/limiter.py`). Endpoints sensibles usan `@limiter.limit("N/period")`.
+- Rate limiting con SlowAPI (`app/core/limiter.py`). Endpoints sensibles usan `@limiter.limit("N/period")`. Requiere `request: Request` en la firma del endpoint (antes de parámetros con default). Límites actuales: auth 10/min, butler `/ask` y `/ask-voice` 20/min.
 - Nunca commitear secretos; configúralos vía `Settings`/`.env` (ver `.example.env`).

@@ -40,6 +40,7 @@ def _get_config() -> RetrieverConfig:
         top_k=settings.qdrant_top_k,
         prefetch_limit=settings.qdrant_prefetch_limit,
         embedding_model=settings.embedding_model,
+        score_threshold=settings.qdrant_score_threshold,
     )
 
 
@@ -84,6 +85,9 @@ def dense_search(
 
     docs: list[RetrievedDoc] = []
     for point in results.points:
+        score = point.score or 0.0
+        if score < cfg.score_threshold:
+            continue
         payload = point.payload or {}
         doc_type = payload.get("doc_type", "")
         if doc_type == "mechanic" and "parent_content" in payload:
@@ -95,7 +99,7 @@ def dense_search(
                 id=str(point.id),
                 content=content,
                 doc_type=doc_type,
-                score=point.score or 0.0,
+                score=score,
                 metadata={
                     k: v
                     for k, v in payload.items()
