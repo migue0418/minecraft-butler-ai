@@ -178,6 +178,45 @@ El contexto se formatea como texto compacto (~80 tokens) con `format_world_conte
 
 IDs de Minecraft se usan tal cual (`minecraft:iron_ingot`).
 
+## Streaming SSE (`app/features/butler/`)
+
+Los endpoints de streaming devuelven eventos SSE (`text/event-stream`) con las `ButlerAction` conforme el grafo las genera. Esto elimina la latencia percibida: el jugador ve el echo de su mensaje inmediatamente y las respuestas aparecen conforme Alfred "piensa".
+
+### Endpoints
+
+```
+POST /api/butler/ask-stream        (mismo body que /ask)
+POST /api/butler/ask-voice-stream  (mismo multipart que /ask-voice)
+```
+
+### Protocolo de eventos
+
+```
+data: {"type":"echo","message":"[Tú] mensaje del jugador"}
+
+data: {"type":"speak","message":"Respuesta de Alfred..."}
+
+data: [DONE]
+```
+
+- **Echo**: primer evento, siempre, con el texto que escribió/habló el jugador. Para voz: `[Tú] 🎤 <transcript>`.
+- **Acciones**: `ButlerAction` serializada (exclude_none=True). Llegan conforme el nodo del grafo completa.
+- **`[DONE]`**: señal de cierre; el cliente puede cerrar la conexión.
+
+### Implementación backend
+
+- `ButlerService.stream()` usa `graph.astream(stream_mode="values")` — detecta nuevas acciones por diff del estado.
+- `StreamEvent` en `schemas.py` extiende `ButlerAction` con `type="echo"`.
+- Rate limiting: `@limiter.limit("20/minute")` igual que los endpoints no-streaming.
+- Los endpoints `/ask` y `/ask-voice` no cambian (retrocompatibles).
+
+### Guía para el cliente Java
+
+Ver `openspec/changes/streaming-butler-responses/design.md` — sección "Guía para el cliente Java". Resumen:
+- `BodyHandlers.ofLines()` para recibir el stream línea a línea.
+- Parsear `data: <JSON>` → `ButlerAction` → `server.execute(() -> ButlerActionExecutor.execute(...))`.
+- Case `"echo"` en `ButlerActionExecutor` → mostrar en gris (`§7`).
+
 ## LLM Factory (`app/features/butler/llm/`)
 
 El slice `butler` abstrae la instanciación de LLMs y embeddings detrás de dos factory functions config-driven:

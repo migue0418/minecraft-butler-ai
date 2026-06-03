@@ -58,3 +58,11 @@ class ButlerAction(BaseModel):
     x: int | None = None
     y: int | None = None
     z: int | None = None
+
+
+class StreamEvent(BaseModel):
+    type: str
+    message: str
+    x: int | None = None
+    y: int | None = None
+    z: int | None = None

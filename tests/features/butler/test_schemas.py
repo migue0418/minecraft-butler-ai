@@ -5,6 +5,7 @@ from app.features.butler.schemas import (
     AskRequest,
     MonsterGroup,
     NearbyContext,
+    StreamEvent,
     WorldContextDTO,
 )
 
@@ -117,3 +118,26 @@ def test_world_context_dto_chest_with_empty_items_is_valid():
     }
     ctx = WorldContextDTO(**data)
     assert ctx.chests[0].items == []
+
+
+def test_stream_event_echo_type():
+    event = StreamEvent(type="echo", message="[Tú] hola Alfred")
+    assert event.type == "echo"
+    assert event.x is None
+
+
+def test_stream_event_speak_type():
+    event = StreamEvent(type="speak", message="Hola jugador")
+    assert event.type == "speak"
+
+
+def test_stream_event_move_type_with_coords():
+    event = StreamEvent(
+        type="move_to_position",
+        message="Me dirijo allí.",
+        x=10,
+        y=64,
+        z=-5,
+    )
+    assert event.x == 10
+    assert event.z == -5
