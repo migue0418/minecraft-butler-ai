@@ -178,6 +178,18 @@ El contexto se formatea como texto compacto (~80 tokens) con `format_world_conte
 
 IDs de Minecraft se usan tal cual (`minecraft:iron_ingot`).
 
+## Streaming por chunks — `ButlerService.stream()`
+
+`ButlerService.stream()` usa `graph.astream_events(version="v2")` para capturar tokens del LLM conforme se generan. Acumula tokens en un buffer y los vuelca en cada frontera natural (`.`, `!`, `?`, `\n`) usando `_flush_at_boundaries()`. Cada chunk se emite como un `ButlerAction(type="speak")` separado. Esto hace que Alfred escriba frase a frase en lugar de todo de golpe.
+
+Las acciones no-LLM (`move_to_position`) se capturan del evento `on_chain_end` del nodo `move_action`.
+
+El buffer se resetea en `on_chain_start` del nodo responder para protección ante reintentos del wrapper `.with_retry()`.
+
+## Estilo de respuesta del LLM
+
+Los system prompts en `graph/nodes.py` instruyen al LLM: sin emojis, sin encabezados markdown, sin introducciones ni conclusiones, respuesta mínima necesaria. Preguntas sencillas → 1-2 frases. Esta restricción aplica tanto al prompt base como al prompt con contexto RAG.
+
 ## LLM Factory (`app/features/butler/llm/`)
 
 El slice `butler` abstrae la instanciación de LLMs y embeddings detrás de dos factory functions config-driven:
