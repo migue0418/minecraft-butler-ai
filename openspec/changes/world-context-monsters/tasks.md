@@ -26,4 +26,4 @@
 ## 5. Cierre (OBLIGATORIO)
 
 - [x] 5.1 Actualizar `docs/backend-standards.md`: documentar `MonsterGroup` y cambio en `NearbyContext`
-- [ ] 5.2 PR con `gh pr create` usando la skill `write-pr-report`
+- [x] 5.2 PR con `gh pr create` usando la skill `write-pr-report`
