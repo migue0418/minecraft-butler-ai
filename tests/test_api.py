@@ -752,6 +752,129 @@ def test_ask_without_coordinates_returns_speak(client: TestClient) -> None:
     assert actions[0]["type"] == "speak"
 
 
+# ── Butler streaming (SSE) tests ─────────────────────────────────────────────
+
+
+async def _async_gen_actions(actions):
+    for a in actions:
+        yield a
+
+
+def test_ask_stream_first_event_is_echo(client: TestClient) -> None:
+    tokens = login(client)
+    mock_action = type(
+        "BA",
+        (),
+        {
+            "type": "speak",
+            "message": "Hola!",
+            "x": None,
+            "y": None,
+            "z": None,
+            "model_dump": lambda self, **kw: {"type": "speak", "message": "Hola!"},
+        },
+    )()
+    with patch(
+        "app.features.butler.service.ButlerService.stream",
+        return_value=_async_gen_actions([mock_action]),
+    ):
+        response = client.post(
+            "/api/butler/ask-stream",
+            json={"message": "hola Alfred"},
+            headers=auth_headers(tokens["access_token"]),
+        )
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    lines = [ln for ln in response.text.split("\n") if ln.startswith("data: ")]
+    import json as _j
+
+    first = _j.loads(lines[0][6:])
+    assert first["type"] == "echo"
+    assert "[Tú]" in first["message"]
+    assert "hola Alfred" in first["message"]
+    assert lines[-1] == "data: [DONE]"
+
+
+def test_ask_stream_contains_action_events(client: TestClient) -> None:
+    tokens = login(client)
+    mock_action = type(
+        "BA",
+        (),
+        {
+            "type": "speak",
+            "message": "Respuesta de prueba",
+            "x": None,
+            "y": None,
+            "z": None,
+            "model_dump": lambda self, **kw: {
+                "type": "speak",
+                "message": "Respuesta de prueba",
+            },
+        },
+    )()
+    with patch(
+        "app.features.butler.service.ButlerService.stream",
+        return_value=_async_gen_actions([mock_action]),
+    ):
+        response = client.post(
+            "/api/butler/ask-stream",
+            json={"message": "test"},
+            headers=auth_headers(tokens["access_token"]),
+        )
+    import json as _j
+
+    lines = [ln for ln in response.text.split("\n") if ln.startswith("data: ")]
+    # lines[0] = echo, lines[1] = speak action, lines[-1] = [DONE]
+    assert len(lines) == 3
+    action_event = _j.loads(lines[1][6:])
+    assert action_event["type"] == "speak"
+    assert action_event["message"] == "Respuesta de prueba"
+
+
+def test_ask_stream_without_auth_returns_401(client: TestClient) -> None:
+    response = client.post("/api/butler/ask-stream", json={"message": "hola"})
+    assert response.status_code == 401
+
+
+def test_ask_voice_stream_echo_has_mic_prefix(client: TestClient) -> None:
+    tokens = login(client)
+    mock_action = type(
+        "BA",
+        (),
+        {
+            "type": "speak",
+            "message": "ok",
+            "x": None,
+            "y": None,
+            "z": None,
+            "model_dump": lambda self, **kw: {"type": "speak", "message": "ok"},
+        },
+    )()
+    with (
+        patch(
+            "app.features.butler.router.transcribe_audio",
+            return_value="como crafteo una espada",
+        ),
+        patch(
+            "app.features.butler.service.ButlerService.stream",
+            return_value=_async_gen_actions([mock_action]),
+        ),
+    ):
+        response = client.post(
+            "/api/butler/ask-voice-stream",
+            files={"audio": ("test.wav", b"fake_wav_bytes", "audio/wav")},
+            headers=auth_headers(tokens["access_token"]),
+        )
+    assert response.status_code == 200
+    import json as _j
+
+    lines = [ln for ln in response.text.split("\n") if ln.startswith("data: ")]
+    first = _j.loads(lines[0][6:])
+    assert first["type"] == "echo"
+    assert "🎤" in first["message"] or "\U0001f3a4" in first["message"]
+    assert "como crafteo una espada" in first["message"]
+
+
 # ── Butler rate limiting tests ───────────────────────────────────────────────
 
 
