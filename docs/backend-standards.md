@@ -178,17 +178,54 @@ El contexto se formatea como texto compacto (~80 tokens) con `format_world_conte
 
 IDs de Minecraft se usan tal cual (`minecraft:iron_ingot`).
 
-## Streaming por chunks — `ButlerService.stream()`
+## Streaming SSE (`app/features/butler/`)
 
-`ButlerService.stream()` usa `graph.astream_events(version="v2")` para capturar tokens del LLM conforme se generan. Acumula tokens en un buffer y los vuelca en cada frontera natural (`.`, `!`, `?`, `\n`) usando `_flush_at_boundaries()`. Cada chunk se emite como un `ButlerAction(type="speak")` separado. Esto hace que Alfred escriba frase a frase en lugar de todo de golpe.
+Los endpoints de streaming devuelven eventos SSE (`text/event-stream`). El jugador ve el echo de su mensaje inmediatamente y las respuestas de Alfred aparecen frase a frase conforme el LLM genera.
 
-Las acciones no-LLM (`move_to_position`) se capturan del evento `on_chain_end` del nodo `move_action`.
+### Endpoints
 
-El buffer se resetea en `on_chain_start` del nodo responder para protección ante reintentos del wrapper `.with_retry()`.
+```
+POST /api/butler/ask-stream        (mismo body que /ask)
+POST /api/butler/ask-voice-stream  (mismo multipart que /ask-voice)
+```
+
+### Protocolo de eventos
+
+```
+data: {"type":"echo","message":"[Tú] mensaje del jugador"}
+
+data: {"type":"speak","message":"Primera frase de Alfred."}
+
+data: {"type":"speak","message":"Segunda frase."}
+
+data: [DONE]
+```
+
+- **Echo**: primer evento, siempre. Para voz: `[Tú] 🎤 <transcript>`.
+- **Acciones**: cada chunk de texto llega como evento `speak` separado en cuanto el LLM genera hasta una frontera natural (`.`, `!`, `?`, `\n`).
+- **`[DONE]`**: señal de cierre.
+
+### Implementación backend
+
+- `ButlerService.stream()` usa `graph.astream_events(version="v2")` — captura eventos `on_chat_model_stream` del LLM token a token y los vuelca en cada frontera con `_flush_at_boundaries()`.
+- `StreamEvent` en `schemas.py` extiende `ButlerAction` con `type="echo"`.
+- Rate limiting: `@limiter.limit("20/minute")` igual que los endpoints no-streaming.
+- Los endpoints `/ask` y `/ask-voice` no cambian (retrocompatibles).
+
+### Guía para el cliente Java
+
+Ver `openspec/changes/streaming-butler-responses/design.md` — sección "Guía para el cliente Java". Resumen:
+- `BodyHandlers.ofLines()` para recibir el stream línea a línea.
+- Parsear `data: <JSON>` → `ButlerAction` → `server.execute(() -> ButlerActionExecutor.execute(...))`.
+- Case `"echo"` en `ButlerActionExecutor` → mostrar en gris (`§7`).
+
+## Streaming por chunks — `_flush_at_boundaries`
+
+Helper en `service.py` que acumula tokens y devuelve chunks al detectar fronteras naturales. Protección ante reintentos: el buffer se resetea en `on_chain_start` del nodo responder.
 
 ## Estilo de respuesta del LLM
 
-Los system prompts en `graph/nodes.py` instruyen al LLM: sin emojis, sin encabezados markdown, sin introducciones ni conclusiones, respuesta mínima necesaria. Preguntas sencillas → 1-2 frases. Esta restricción aplica tanto al prompt base como al prompt con contexto RAG.
+Los system prompts en `graph/nodes.py` instruyen al LLM: sin emojis, sin encabezados markdown, sin introducciones ni conclusiones, respuesta mínima necesaria. Preguntas sencillas → 1-2 frases.
 
 ## LLM Factory (`app/features/butler/llm/`)
 
