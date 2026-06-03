@@ -57,8 +57,16 @@ def format_world_context(ctx: dict) -> str:
         if items:
             items_str = ", ".join(f"{i['count']}× {i['item']}" for i in items)
             lines.append(f'- Cofre "{chest["name"]}": {items_str}')
+        else:
+            lines.append(f'- Cofre "{chest["name"]}": vacío')
 
     nearby = ctx.get("nearby", {})
+    monsters = nearby.get("monsters", [])[:5]
+    if monsters:
+        lines.append(
+            "- Monstruos cercanos: "
+            + ", ".join(f"{m['count']} {m['type']}" for m in monsters),
+        )
     animals = nearby.get("animals", [])[:5]
     if animals:
         lines.append(

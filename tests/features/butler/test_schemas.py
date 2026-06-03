@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from app.features.butler.schemas import AskRequest, WorldContextDTO
+from app.features.butler.schemas import (
+    AskRequest,
+    MonsterGroup,
+    NearbyContext,
+    WorldContextDTO,
+)
 
 _VALID_CTX = {
     "player": {
@@ -69,3 +74,46 @@ def test_ask_request_world_context_invalid_raises_422():
             message="test",
             world_context={"player": "not-an-object", "nearby": {}},
         )
+
+
+def test_nearby_context_with_monsters():
+    ctx = NearbyContext(
+        monsters=[MonsterGroup(type="minecraft:zombie", count=2)],
+        animals=[],
+        crops=[],
+    )
+    assert ctx.monsters[0].type == "minecraft:zombie"
+    assert ctx.monsters[0].count == 2
+
+
+def test_nearby_context_without_monsters_is_retrocompatible():
+    ctx = NearbyContext(animals=[], crops=[])
+    assert ctx.monsters == []
+
+
+def test_world_context_dto_with_monsters():
+    data = {
+        "player": {"x": -25, "y": 88, "z": -34, "inventory": []},
+        "chests": [],
+        "nearby": {
+            "animals": [{"type": "minecraft:sheep", "count": 2}],
+            "monsters": [
+                {"type": "minecraft:zombie", "count": 1},
+                {"type": "minecraft:spider", "count": 1},
+            ],
+            "crops": [],
+        },
+    }
+    ctx = WorldContextDTO(**data)
+    assert len(ctx.nearby.monsters) == 2
+    assert ctx.nearby.monsters[0].type == "minecraft:zombie"
+
+
+def test_world_context_dto_chest_with_empty_items_is_valid():
+    data = {
+        "player": {"x": 0, "y": 64, "z": 0, "inventory": []},
+        "chests": [{"name": "piedra", "items": []}],
+        "nearby": {"animals": [], "monsters": [], "crops": []},
+    }
+    ctx = WorldContextDTO(**data)
+    assert ctx.chests[0].items == []
