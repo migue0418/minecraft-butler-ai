@@ -177,7 +177,10 @@ instanciar modelos repartidos por el código, hay `get_llm("classifier")` y
   `BaseChatModel` de LangChain. Lo mismo con embeddings (**HuggingFace** local vs. OpenAI API).
   No hay *lock-in* de proveedor: argumento de riesgo y de coste.
 - **Caché.** `lru_cache` evita recrear clientes y recargar el modelo de embeddings (~150 MB) en
-  cada petición.
+  cada petición. Además, el `lifespan` **precalienta el modelo de embeddings y el cliente Qdrant
+  en el arranque** (un embed de calentamiento + comprobación de conectividad), igual que con
+  Whisper, para que la primera pregunta con RAG no pague el cold-start. Es tolerante a fallos: si
+  Qdrant no está disponible al arrancar, registra un aviso y cae a carga perezosa.
 
 ### 4. Streaming — frase a frase por SSE
 
@@ -408,7 +411,10 @@ instantiating models scattered across the code, there's `get_llm("classifier")` 
   `BaseChatModel` interface. Same for embeddings (**HuggingFace** local vs. OpenAI API). No
   provider lock-in: a risk and cost argument.
 - **Caching.** `lru_cache` avoids recreating clients and reloading the ~150 MB embedding model
-  on every request.
+  on every request. On top of that, the `lifespan` **pre-warms the embedding model and the Qdrant
+  client at startup** (a warm-up embed + connectivity check), just like Whisper, so the first RAG
+  question doesn't pay the cold-start. It is fault-tolerant: if Qdrant is unavailable at startup,
+  it logs a warning and falls back to lazy loading.
 
 ### 4. Streaming — sentence by sentence over SSE
 

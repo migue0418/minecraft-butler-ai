@@ -1,3 +1,4 @@
+import logging
 import os
 import ssl
 import warnings
@@ -10,6 +11,31 @@ from fastapi import FastAPI
 from app.core.database import close_database, init_database, session_scope
 from app.core.settings import get_settings
 from app.features.auth.seed import seed_admin_user
+
+logger = logging.getLogger(__name__)
+
+
+def _preload_rag() -> None:
+    """Precalienta el RAG en el arranque para evitar cold-start en la primera petición.
+
+    Fuerza la carga del modelo de embeddings (~150MB) y su primera inferencia, e inicializa
+    el cliente Qdrant. Reutiliza los factories cacheados (`lru_cache`), de modo que la misma
+    instancia caliente se reutiliza luego en `retrieve_context`. Debe invocarse después del
+    bypass SSL para respetar la carga offline en entornos con proxy.
+
+    Tolerante a fallos: si el modelo o Qdrant no están disponibles, registra un aviso y deja
+    que el RAG se cargue perezosamente en la primera petición (no rompe el arranque).
+    """
+    from app.features.butler.llm.factory import get_embedding_model
+    from app.features.butler.rag.client import get_qdrant_client
+
+    try:
+        model = get_embedding_model()
+        model.embed_query("calentamiento")  # fuerza la primera inferencia
+        client = get_qdrant_client()
+        client.get_collections()  # abre la conexión y valida conectividad con Qdrant
+    except Exception as exc:  # noqa: BLE001 - el precalentamiento es opcional
+        logger.warning("No se pudo precalentar el RAG en el arranque: %s", exc)
 
 
 def _configure_ssl_bypass() -> None:
@@ -66,6 +92,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
     await get_compiled_graph()
     get_whisper_model()  # precalienta faster-whisper en startup → cero cold-start en /ask-voice
+    _preload_rag()  # precalienta embeddings + Qdrant → cero cold-start en la primera pregunta RAG
 
     yield
 
