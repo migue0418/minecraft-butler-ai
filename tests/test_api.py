@@ -222,7 +222,11 @@ def build_client(
     try:
         limiter._storage.reset()
         app = create_app()
-        with TestClient(app) as client:
+        # Evitar que el lifespan precaliente el RAG real (modelo ~150MB + Qdrant) en tests.
+        with (
+            patch("app.core.lifespan._preload_rag", new=MagicMock()),
+            TestClient(app) as client,
+        ):
             yield client
     finally:
         asyncio.run(close_database())
