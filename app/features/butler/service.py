@@ -13,6 +13,21 @@ _BOUNDARY = re.compile(r"(?<=[.!?])\s+|(?<=\n)")
 
 _RESPONDER_NODES = {"speak_action", "answer_question"}
 
+
+def _resolve_thread_id(session_id: str | None, user_id: int | None) -> str:
+    """Resuelve el thread_id del checkpointer con esta precedencia:
+
+    1. `session_id` explícito → conversación a medida (varias por usuario).
+    2. usuario autenticado → `user-{user_id}`, memoria persistente por jugador.
+    3. salvaguarda sin usuario → hilo efímero (no esperable en endpoints autenticados).
+    """
+    if session_id:
+        return session_id
+    if user_id is not None:
+        return f"user-{user_id}"
+    return f"ephemeral-{uuid4()}"
+
+
 # Centinela de fin de stream y tamaño de la cola productor→consumidor.
 _STREAM_DONE = object()
 _QUEUE_MAXSIZE = 32
@@ -37,9 +52,10 @@ class ButlerService:
         session_id: str | None = None,
         input_mode: str = "text",
         world_context: dict | None = None,
+        user_id: int | None = None,
     ) -> list[ButlerAction]:
         graph = await get_compiled_graph()
-        thread_id = session_id or f"ephemeral-{uuid4()}"
+        thread_id = _resolve_thread_id(session_id, user_id)
         config = {"configurable": {"thread_id": thread_id}}
         state = await graph.ainvoke(
             {
@@ -66,6 +82,7 @@ class ButlerService:
         session_id: str | None,
         input_mode: str,
         world_context: dict | None,
+        user_id: int | None,
     ) -> None:
         """Productor: ejecuta el grafo en su propia task y empuja ButlerAction a la cola.
 
@@ -79,11 +96,15 @@ class ButlerService:
         """
         try:
             graph = await get_compiled_graph()
-            thread_id = session_id or f"ephemeral-{uuid4()}"
+            thread_id = _resolve_thread_id(session_id, user_id)
             config = {
                 "configurable": {"thread_id": thread_id},
                 "run_name": f"butler-{input_mode}-stream",
-                "metadata": {"session_id": thread_id, "input_mode": input_mode},
+                "metadata": {
+                    "session_id": thread_id,
+                    "input_mode": input_mode,
+                    "user_id": user_id,
+                },
             }
             initial_state = {
                 "message": message,
@@ -151,6 +172,7 @@ class ButlerService:
         session_id: str | None = None,
         input_mode: str = "text",
         world_context: dict | None = None,
+        user_id: int | None = None,
     ) -> AsyncIterator[ButlerAction]:
         """Consumidor: drena la cola que alimenta la task productora del grafo.
 
@@ -165,6 +187,7 @@ class ButlerService:
                 session_id,
                 input_mode,
                 world_context,
+                user_id,
             ),
         )
         try:
