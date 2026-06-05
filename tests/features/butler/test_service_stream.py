@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -180,3 +181,64 @@ async def test_stream_move_action_from_chain_end():
     assert len(actions) == 1
     assert actions[0].type == "move_to_position"
     assert actions[0].x == 10
+
+
+@pytest.mark.asyncio
+async def test_stream_reraises_producer_exception():
+    """Si el grafo (productor) lanza, stream() debe re-lanzar en el consumidor,
+    no tragar el error en silencio."""
+    from app.features.butler.service import ButlerService
+
+    async def mock_astream_events(*args, **kwargs):
+        yield _make_chain_start("speak_action")
+        raise RuntimeError("grafo roto")
+
+    mock_graph = AsyncMock()
+    mock_graph.astream_events = mock_astream_events
+
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        service = ButlerService()
+        with pytest.raises(RuntimeError, match="grafo roto"):
+            async for _ in service.stream("test"):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_stream_cancels_producer_on_early_consumer_exit():
+    """Si el consumidor cierra el stream tras consumo parcial (desconexión del
+    cliente), la task productora del grafo debe cancelarse limpiamente."""
+    from app.features.butler.service import ButlerService
+
+    cancelled = {"value": False}
+
+    async def mock_astream_events(*args, **kwargs):
+        try:
+            yield _make_chain_start("speak_action")
+            yield _make_token_event("speak_action", "Primera frase. ")
+            i = 0
+            while True:  # productor infinito hasta que lo cancelen
+                yield _make_token_event("speak_action", f"relleno {i}. ")
+                i += 1
+                await asyncio.sleep(0)
+        except (asyncio.CancelledError, GeneratorExit):
+            cancelled["value"] = True
+            raise
+
+    mock_graph = AsyncMock()
+    mock_graph.astream_events = mock_astream_events
+
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        service = ButlerService()
+        agen = service.stream("test")
+        first = await asyncio.wait_for(agen.__anext__(), timeout=2.0)
+        # Simula desconexión del cliente: cierra el generador consumidor.
+        await asyncio.wait_for(agen.aclose(), timeout=2.0)
+
+    assert "Primera frase." in first.message
+    assert cancelled["value"] is True
