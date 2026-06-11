@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/butler", tags=["Butler"])
 async def ask(
     req: AskRequest,
     request: Request,
-    _user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user),
     service: ButlerService = Depends(get_butler_service),
 ) -> list[ButlerAction]:
     world_context = req.world_context.model_dump() if req.world_context else None
@@ -44,6 +44,7 @@ async def ask(
         req.session_id,
         input_mode="text",
         world_context=world_context,
+        user_id=user.id,
     )
 
 
@@ -58,7 +59,7 @@ async def ask_voice(
     audio: UploadFile = File(...),
     session_id: str | None = Form(None),
     world_context: str | None = Form(None),
-    _user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user),
     service: ButlerService = Depends(get_butler_service),
 ) -> list[ButlerAction]:
     audio_bytes = await audio.read()
@@ -80,6 +81,7 @@ async def ask_voice(
         session_id,
         input_mode="voice",
         world_context=ctx_dict,
+        user_id=user.id,
     )
 
 
@@ -92,7 +94,7 @@ def _sse(data: str) -> str:
 async def ask_stream(
     req: AskRequest,
     request: Request,
-    _user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user),
     service: ButlerService = Depends(get_butler_service),
 ) -> StreamingResponse:
     world_context = req.world_context.model_dump() if req.world_context else None
@@ -104,6 +106,7 @@ async def ask_stream(
             req.session_id,
             input_mode="text",
             world_context=world_context,
+            user_id=user.id,
         ):
             yield _sse(json_lib.dumps(action.model_dump(exclude_none=True)))
         yield _sse("[DONE]")
@@ -118,7 +121,7 @@ async def ask_voice_stream(
     audio: UploadFile = File(...),
     session_id: str | None = Form(None),
     world_context: str | None = Form(None),
-    _user: User = Depends(get_authenticated_user),
+    user: User = Depends(get_authenticated_user),
     service: ButlerService = Depends(get_butler_service),
 ) -> StreamingResponse:
     audio_bytes = await audio.read()
@@ -148,6 +151,7 @@ async def ask_voice_stream(
             session_id,
             input_mode="voice",
             world_context=ctx_dict,
+            user_id=user.id,
         ):
             yield _sse(json_lib.dumps(action.model_dump(exclude_none=True)))
         yield _sse("[DONE]")

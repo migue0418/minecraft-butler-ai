@@ -183,6 +183,52 @@ async def test_stream_move_action_from_chain_end():
     assert actions[0].x == 10
 
 
+def _capture_config_graph():
+    """Devuelve (mock_graph, captured) donde captured['config'] guarda el config recibido."""
+    captured: dict = {}
+
+    async def mock_astream_events(initial_state, config=None, **kwargs):
+        captured["config"] = config
+        # Un evento mínimo para que el stream produzca algo y termine.
+        yield _make_chain_start("speak_action")
+        yield _make_token_event("speak_action", "Hola.")
+        yield _make_chain_end("speak_action")
+
+    mock_graph = AsyncMock()
+    mock_graph.astream_events = mock_astream_events
+    return mock_graph, captured
+
+
+@pytest.mark.asyncio
+async def test_stream_uses_user_thread_id_when_no_session_id():
+    from app.features.butler.service import ButlerService
+
+    mock_graph, captured = _capture_config_graph()
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        service = ButlerService()
+        _ = [a async for a in service.stream("hola", user_id=7)]
+
+    assert captured["config"]["configurable"]["thread_id"] == "user-7"
+
+
+@pytest.mark.asyncio
+async def test_stream_session_id_takes_precedence_over_user():
+    from app.features.butler.service import ButlerService
+
+    mock_graph, captured = _capture_config_graph()
+    with patch(
+        "app.features.butler.service.get_compiled_graph",
+        new=AsyncMock(return_value=mock_graph),
+    ):
+        service = ButlerService()
+        _ = [a async for a in service.stream("hola", session_id="s1", user_id=7)]
+
+    assert captured["config"]["configurable"]["thread_id"] == "s1"
+
+
 @pytest.mark.asyncio
 async def test_stream_reraises_producer_exception():
     """Si el grafo (productor) lanza, stream() debe re-lanzar en el consumidor,

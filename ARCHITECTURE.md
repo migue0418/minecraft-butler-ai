@@ -110,7 +110,10 @@ auditable**.
 - **Persistencia** ([graph.py](app/features/butler/graph/graph.py)): el grafo se compila con un
   **checkpointer `AsyncRedisSaver`**. Cada sesión (`thread_id`) guarda su estado en Redis con
   **TTL** (24h por defecto, refrescado en lectura). El grafo se compila una sola vez (singleton
-  protegido con `asyncio.Lock`).
+  protegido con `asyncio.Lock`). El `thread_id` se resuelve con precedencia
+  `session_id` → `user-{id}` (usuario autenticado) → efímero: si el cliente no envía `session_id`,
+  **cada jugador tiene un butler con memoria persistente por defecto** sin gestionar nada en el
+  cliente.
 
 **Por qué es útil.** Separación de responsabilidades, ramas testeables, enrutado determinista
 y memoria con estado. Es la diferencia entre un **agente con memoria** y un chatbot sin estado.
@@ -345,7 +348,9 @@ branches. Routing is a plain intent→node dictionary
 - **Persistence** ([graph.py](app/features/butler/graph/graph.py)): the graph compiles with an
   **`AsyncRedisSaver` checkpointer**. Each session (`thread_id`) stores its state in Redis with
   a **TTL** (24h default, refreshed on read). The graph compiles once (singleton guarded by an
-  `asyncio.Lock`).
+  `asyncio.Lock`). The `thread_id` is resolved with precedence `session_id` → `user-{id}`
+  (authenticated user) → ephemeral: if the client sends no `session_id`, **each player gets a
+  butler with persistent memory by default** without managing anything client-side.
 
 **Why it's useful.** Separation of concerns, testable branches, deterministic routing and
 stateful memory. The difference between an **agent with memory** and a stateless chatbot.
