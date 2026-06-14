@@ -13,7 +13,30 @@
 
 ## Demo
 
-> 📹 Demo video coming soon.
+https://github.com/user-attachments/assets/6c864b80-22f0-4b93-9eac-2a33d847edb2
+
+Three questions in a single session, each exercising a different capability:
+
+| # | Question | Alfred's answer | Powered by |
+|---|---|---|---|
+| 1 | *¿Cómo se hace una espada de hierro?* | 2 lingotes de hierro y 1 palo | **RAG** over the Minecraft Wiki |
+| 2 | *¿Tengo lo necesario para fabricarla?* | No, te faltan los lingotes de hierro (tienes palos, pero ningún lingote) | **Memory + live world state** |
+| 3 | *¿Qué cultivos están listos para recoger?* | 5 zanahorias, 2 patatas... | **Live world state** |
+
+Question 2 is the interesting one: Alfred recalls the previous answer (the sword recipe) and cross-checks it against the player's actual inventory. Memory and world context working together.
+
+### Under the hood (LangSmith)
+
+Every turn is fully traced. Each message flows through a LangGraph pipeline
+(`classify_intent` → `route_intent` → `retrieve_context` → `answer_question`), using a
+cheap model (`claude-haiku-4-5`) for intent classification and a stronger one
+(`claude-sonnet-4-6`) for the final answer.
+
+![LangSmith session overview](docs/assets/langsmith-traces.png)
+*The three turns with latency, time-to-first-token, token usage and cost. Around $0.004 and 2.4 to 3.5s per turn.*
+
+![LangSmith trace tree](docs/assets/langsmith-trace-tree.png)
+*Full trace for question 1: intent classification, routing, RAG retrieval and answer generation.*
 
 ## Architecture
 
